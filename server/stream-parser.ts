@@ -1,5 +1,6 @@
 import { broadcastTerminal } from './state.ts';
 import { updateNode, getNode, broadcast } from './state.ts';
+import { trackFileEdit } from './overlap-tracker.ts';
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -66,6 +67,14 @@ export function createStreamParser(nodeId: string, callbacks: StreamCallbacks = 
         const input = event.input;
         lines.push(`[Tool: ${name}]`);
         callbacks.onToolUse?.(name, input);
+
+        // Track file edits for overlap detection
+        if ((name === 'Edit' || name === 'Write') && input && typeof input === 'object') {
+          const filePath = (input as Record<string, unknown>).file_path ?? (input as Record<string, unknown>).path;
+          if (typeof filePath === 'string') {
+            trackFileEdit(nodeId, filePath);
+          }
+        }
         break;
       }
 
