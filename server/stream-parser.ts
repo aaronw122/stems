@@ -1,6 +1,7 @@
 import { broadcastTerminal } from './state.ts';
 import { updateNode, getNode, broadcast } from './state.ts';
 import { trackFileEdit } from './overlap-tracker.ts';
+import type { DisplayStage } from '../shared/types.ts';
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -15,6 +16,53 @@ export interface StreamCallbacks {
 interface StreamEvent {
   type: string;
   [key: string]: unknown;
+}
+
+// ── Test command patterns ───────────────────────────────────────────
+
+const TEST_PATTERNS = [
+  'bun test',
+  'vitest',
+  'pytest',
+  'jest',
+  'npm test',
+  'npm run test',
+  'yarn test',
+  'cargo test',
+  'go test',
+];
+
+function isTestCommand(command: string): boolean {
+  const lower = command.toLowerCase();
+  return TEST_PATTERNS.some((pattern) => lower.includes(pattern));
+}
+
+// ── Auto-title extraction ───────────────────────────────────────────
+
+function extractTitle(text: string): string | null {
+  // Strip leading whitespace/newlines
+  const cleaned = text.replace(/^\s+/, '');
+  if (cleaned.length < 5) return null;
+
+  // Take first sentence or first ~60 chars
+  const sentenceEnd = cleaned.search(/[.!?\n]/);
+  let title: string;
+
+  if (sentenceEnd > 0 && sentenceEnd <= 60) {
+    title = cleaned.slice(0, sentenceEnd).trim();
+  } else if (cleaned.length <= 60) {
+    title = cleaned.trim();
+  } else {
+    // Truncate at word boundary near 60 chars
+    const truncated = cleaned.slice(0, 60);
+    const lastSpace = truncated.lastIndexOf(' ');
+    title = (lastSpace > 20 ? truncated.slice(0, lastSpace) : truncated).trim() + '...';
+  }
+
+  // Remove markdown formatting
+  title = title.replace(/^#+\s*/, '').replace(/\*+/g, '').trim();
+
+  return title.length >= 3 ? title : null;
 }
 
 // ── Parse a single stream-json line ──────────────────────────────────
@@ -33,8 +81,108 @@ export function parseStreamLine(line: string): StreamEvent | null {
 // ── Create a stream parser that processes stdout from Claude CLI ─────
 
 export function createStreamParser(nodeId: string, callbacks: StreamCallbacks = {}) {
+  let currentStage: DisplayStage = 'planning';
+  let titleExtracted = false;
+  let accumulatedText = '';
+  let idleTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const IDLE_TIMEOUT_MS = 120_000; // 2 minutes
+
+  // ── Stage transition helper ────────────────────────────────────────
+
+  function transitionStage(newStage: DisplayStage): void {
+    if (newStage === currentStage) return;
+    currentStage = newStage;
+    const updated = updateNode(nodeId, { displayStage: newStage });
+    if (updated) {
+      broadcast({ type: 'node_updated', node: updated });
+    }
+  }
+
+  // ── Human-needed helpers ───────────────────────────────────────────
+
+  function setHumanNeeded(
+    humanNeededType: 'question' | 'permission' | 'error' | 'idle',
+    humanNeededPayload: unknown,
+  ): void {
+    const updated = updateNode(nodeId, {
+      needsHuman: true,
+      nodeState: 'needs-human',
+      humanNeededType,
+      humanNeededPayload,
+    });
+    if (updated) {
+      broadcast({ type: 'node_updated', node: updated });
+    }
+  }
+
+  function clearHumanNeeded(): void {
+    const node = getNode(nodeId);
+    if (node?.needsHuman) {
+      const updated = updateNode(nodeId, {
+        needsHuman: false,
+        nodeState: 'running',
+        humanNeededType: null,
+        humanNeededPayload: null,
+      });
+      if (updated) {
+        broadcast({ type: 'node_updated', node: updated });
+      }
+    }
+  }
+
+  // ── Idle timeout management ────────────────────────────────────────
+
+  function resetIdleTimer(): void {
+    if (idleTimer) clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => {
+      setHumanNeeded('idle', 'No activity for 2 minutes');
+    }, IDLE_TIMEOUT_MS);
+  }
+
+  function clearIdleTimer(): void {
+    if (idleTimer) {
+      clearTimeout(idleTimer);
+      idleTimer = null;
+    }
+  }
+
+  // ── Auto-title check ──────────────────────────────────────────────
+
+  function tryExtractTitle(text: string): void {
+    if (titleExtracted) return;
+
+    accumulatedText += text;
+
+    // Wait until we have enough text to extract a meaningful title
+    if (accumulatedText.length < 10) return;
+
+    const title = extractTitle(accumulatedText);
+    if (title) {
+      titleExtracted = true;
+      const node = getNode(nodeId);
+      // Only auto-title if the current title looks like a default (prompt truncation)
+      if (node && (node.title.endsWith('...') || node.title.length > 35)) {
+        const updated = updateNode(nodeId, { title });
+        if (updated) {
+          broadcast({ type: 'node_updated', node: updated });
+        }
+      }
+    }
+  }
+
+  // ── Process a single event ─────────────────────────────────────────
+
   function processEvent(event: StreamEvent): void {
     const lines: string[] = [];
+
+    // Reset idle timer on any event
+    resetIdleTimer();
+
+    // Clear human-needed on activity (unless this is the event that sets it)
+    if (event.type !== 'error') {
+      clearHumanNeeded();
+    }
 
     switch (event.type) {
       case 'assistant': {
@@ -45,6 +193,7 @@ export function createStreamParser(nodeId: string, callbacks: StreamCallbacks = 
             if (block.type === 'text' && block.text) {
               lines.push(block.text);
               callbacks.onText?.(block.text);
+              tryExtractTitle(block.text);
             }
           }
         }
@@ -57,6 +206,7 @@ export function createStreamParser(nodeId: string, callbacks: StreamCallbacks = 
         if (delta?.type === 'text_delta' && delta.text) {
           lines.push(delta.text);
           callbacks.onText?.(delta.text);
+          tryExtractTitle(delta.text);
         }
         break;
       }
@@ -75,6 +225,24 @@ export function createStreamParser(nodeId: string, callbacks: StreamCallbacks = 
             trackFileEdit(nodeId, filePath);
           }
         }
+
+        // ── Stage detection ──────────────────────────────────────────
+        if (name === 'Edit' || name === 'Write') {
+          transitionStage('executing');
+        } else if (name === 'Bash') {
+          const command = typeof input === 'object' && input !== null
+            ? String((input as Record<string, unknown>).command ?? '')
+            : String(input ?? '');
+          if (isTestCommand(command)) {
+            transitionStage('testing');
+          }
+        }
+
+        // ── Human-needed: AskUserQuestion ────────────────────────────
+        if (name === 'AskUserQuestion') {
+          setHumanNeeded('question', input);
+        }
+
         break;
       }
 
@@ -100,6 +268,9 @@ export function createStreamParser(nodeId: string, callbacks: StreamCallbacks = 
         lines.push(`[Completed] Cost: $${costUsd.toFixed(4)}`);
         callbacks.onResult?.(text, costUsd, usage);
 
+        // Clear idle timer on completion
+        clearIdleTimer();
+
         // Update node state
         const node = getNode(nodeId);
         if (node) {
@@ -123,6 +294,9 @@ export function createStreamParser(nodeId: string, callbacks: StreamCallbacks = 
         const errorMsg = String(event.error ?? event.message ?? 'Unknown error');
         lines.push(`[Error] ${errorMsg}`);
         callbacks.onError?.(errorMsg);
+
+        // Set human-needed for errors
+        setHumanNeeded('error', errorMsg);
 
         // Update node state
         const updated = updateNode(nodeId, {
@@ -152,6 +326,9 @@ export function createStreamParser(nodeId: string, callbacks: StreamCallbacks = 
     const reader = stream.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
+
+    // Start idle timer when stream begins
+    resetIdleTimer();
 
     try {
       while (true) {
@@ -185,6 +362,7 @@ export function createStreamParser(nodeId: string, callbacks: StreamCallbacks = 
       broadcastTerminal(nodeId, [`[Stream Error] ${errorMsg}`]);
       callbacks.onError?.(errorMsg);
     } finally {
+      clearIdleTimer();
       reader.releaseLock();
     }
   }
