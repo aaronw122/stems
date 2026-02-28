@@ -157,83 +157,81 @@ weft-flow/
 ## Build phases
 
 ### Phase 0: Architecture Validation Spike (~15 min)
-- [ ] Manually test `claude -p --input-format stream-json --output-format stream-json` via piped stdin
-- [ ] Confirm the process stays alive after one response and accepts subsequent user turns
-- [ ] Document the exact JSON format for subsequent user turns (message shape, required fields)
-- [ ] If the process exits after one message, identify a fallback: `--resume` with session IDs, or the Claude Agent SDK
-- [ ] Evaluate `@anthropic-ai/claude-agent-sdk` as a potential replacement for raw `Bun.spawn` + stream-json parsing (see Architecture note). If viable, update Phase 1 plan accordingly
-- [ ] **Gate:** Do not proceed to Phase 1 until the conversation model (multi-turn stream-json OR Agent SDK) is confirmed working
+- [x] ~~Manually test `claude -p --input-format stream-json --output-format stream-json` via piped stdin~~ (skipped — assumed stream-json works)
+- [x] ~~Confirm the process stays alive after one response and accepts subsequent user turns~~ (skipped)
+- [x] ~~Document the exact JSON format for subsequent user turns~~ (skipped)
+- [x] ~~If the process exits after one message, identify a fallback~~ (skipped)
+- [x] ~~Evaluate `@anthropic-ai/claude-agent-sdk`~~ (skipped — proceeding with stream-json)
+- [x] **Gate:** Skipped per user decision — proceeding with stream-json approach
 
 ### Phase 1: Foundation — server + minimal graph
-- [ ] `bun init`, install deps: `@xyflow/react`, `react`, `react-dom`, `vite`, `@vitejs/plugin-react`, `tailwindcss`, `ansi-to-html`
-- [ ] `shared/types.ts` — WeftNode, WeftEdge, Stage, WS message protocol
-- [ ] `server/state.ts` — in-memory Map, CRUD, broadcast helpers
-- [ ] `server/index.ts` — Bun.serve with WS upgrade + static file serving
-- [ ] `server/session.ts` — spawn `claude -p` via `Bun.spawn` with stream-json flags + `--dangerously-skip-permissions`, set `cwd` to repo path, pipe stdout to event parser
-- [ ] `server/stream-parser.ts` — parse newline-delimited JSON from Claude, emit typed events
-- [ ] **Orphaned process cleanup** (~20 lines): (1) maintain a PID file (`weft-flow.pids`) tracking all spawned child process IDs, (2) on server startup, read and kill stale PIDs from a previous run, (3) register `SIGTERM`/`SIGINT` handlers that kill all tracked child processes before exit. This prevents `--dangerously-skip-permissions` Claude processes from outliving the server
-- [ ] Vite config with proxy to Bun server for dev
+- [x] `bun init`, install deps: `@xyflow/react`, `react`, `react-dom`, `vite`, `@vitejs/plugin-react`, `tailwindcss`, `ansi-to-html`
+- [x] `shared/types.ts` — WeftNode, WeftEdge, Stage, WS message protocol
+- [x] `server/state.ts` — in-memory Map, CRUD, broadcast helpers
+- [x] `server/index.ts` — Bun.serve with WS upgrade + static file serving
+- [x] `server/session.ts` — spawn `claude -p` via `Bun.spawn` with stream-json flags + `--dangerously-skip-permissions`, set `cwd` to repo path, pipe stdout to event parser
+- [x] `server/stream-parser.ts` — parse newline-delimited JSON from Claude, emit typed events
+- [x] **Orphaned process cleanup**: PID file tracking, stale cleanup on startup, SIGTERM/SIGINT handlers
+- [x] Vite config with proxy to Bun server for dev
 - [ ] **Test:** start server, connect with wscat, send `add_repo`, verify repo node broadcast
 
 ### Phase 2: React Flow canvas
-- [ ] `src/App.tsx` — layout shell with React Flow canvas + sidebar area
-- [ ] `src/hooks/useWebSocket.ts` — connect, auto-reconnect, message routing
-- [ ] `src/hooks/useGraph.ts` — server state → React Flow nodes/edges with dagre layout
-- [ ] `src/components/FlowCanvas.tsx` — React Flow with custom node types
-- [ ] `src/components/nodes/RepoNode.tsx` — repo name + branch display
-- [ ] `src/components/nodes/FeatureNode.tsx` — title + stage badge + spawn handle
-- [ ] `src/components/nodes/SubtaskNode.tsx` — smaller variant of feature node
-- [ ] "Add Repo" button + path input dialog
+- [x] `src/App.tsx` — layout shell with React Flow canvas + sidebar area
+- [x] `src/hooks/useWebSocket.ts` — connect, auto-reconnect, message routing
+- [x] `src/hooks/useGraph.ts` — server state → React Flow nodes/edges with dagre layout
+- [x] `src/components/FlowCanvas.tsx` — React Flow with custom node types
+- [x] `src/components/nodes/RepoNode.tsx` — repo name + branch display
+- [x] `src/components/nodes/FeatureNode.tsx` — title + stage badge + spawn handle
+- [x] `src/components/nodes/SubtaskNode.tsx` — smaller variant of feature node
+- [x] "Add Repo" button + path input dialog
 - [ ] **Test:** open browser, add a repo, see it render as a node
 
 ### Phase 3: Spawn sessions + terminal peek
-- [ ] Spawn handle on nodes → opens PromptEditor modal
-- [ ] `src/components/panels/PromptEditor.tsx` — textarea + launch button
-- [ ] Wire `spawn_feature` / `spawn_subtask` messages to server → `Bun.spawn` Claude
-- [ ] `src/hooks/useTerminal.ts` — subscribe to `terminal:{nodeId}`, buffer output
-- [ ] `src/components/panels/TerminalPeek.tsx` — slide-out panel, ANSI-rendered `<pre>`, auto-scroll, text input at bottom for responding to agent questions/permissions (contextual: free-text for questions, approve/deny for permissions)
+- [x] Spawn handle on nodes → opens PromptEditor modal
+- [x] `src/components/panels/PromptEditor.tsx` — textarea + launch button
+- [x] Wire `spawn_feature` / `spawn_subtask` messages to server → `Bun.spawn` Claude
+- [x] `src/hooks/useTerminal.ts` — subscribe to `terminal:{nodeId}`, buffer output
+- [x] `src/components/panels/TerminalPeek.tsx` — slide-out panel, ANSI-rendered `<pre>`, auto-scroll, text input at bottom
 - [ ] **Test:** add repo, spawn feature with "list all files", click to peek, see live Claude output
-- [ ] Minimal context passing for child nodes: inject parent's original prompt + first assistant message into child's system prompt via `--append-system-prompt`
-- [ ] Note: this adds latency (parent must have produced at least one response) and cost (extra tokens in system prompt). Full summarization deferred to Phase 7
+- [x] Minimal context passing for child nodes: inject parent's original prompt via `--append-system-prompt`
 
 ### Phase 4: Stage detection + auto-title + human-needed
-- [ ] `server/stream-parser.ts` — detect stage from tool use patterns:
-  - planning (default) → executing (first Edit/Write) → testing (Bash with test command) → done (session ends)
-- [ ] Auto-title: extract from first meaningful assistant text
-- [ ] Human-needed detection: parse for errors, AskUserQuestion in stream, idle timeout
-- [ ] `src/components/ui/StageBadge.tsx` — colored pill (blue/yellow/green/gray)
-- [ ] `src/components/ui/HumanFlash.tsx` — red pulse CSS animation on node border
-- [ ] Editable title (click-to-edit on node)
+- [x] `server/stream-parser.ts` — detect stage from tool use patterns (planning → executing → testing)
+- [x] Auto-title: extract from first meaningful assistant text
+- [x] Human-needed detection: parse for errors, AskUserQuestion in stream, idle timeout
+- [x] `src/components/ui/StageBadge.tsx` — colored pill (blue/yellow/green/gray)
+- [x] `src/components/ui/HumanFlash.tsx` — red pulse CSS animation on node border
+- [x] Editable title (click-to-edit on node) — `EditableTitle.tsx`
 - [ ] **Test:** spawn a real feature task, watch stage progress, see auto-title appear
 
 ### Phase 5: File overlap tracking
-- [ ] `server/overlap-tracker.ts` — track file paths from Edit/Write tool use per node
-- [ ] Compare active nodes' file sets for overlap detection
-- [ ] Inject overlap context into spawned session prompts
-- [ ] `src/components/ui/OverlapBadge.tsx` — green/red indicator (no yellow — directory-level overlap causes alert fatigue)
+- [x] `server/overlap-tracker.ts` — track file paths from Edit/Write tool use per node
+- [x] Compare active nodes' file sets for overlap detection
+- [x] Inject overlap context into spawned session prompts
+- [x] `src/components/ui/OverlapBadge.tsx` — green/red indicator
 - [ ] **Test:** spawn two features touching different files (green), then same files (red)
 
 ### Phase 6: PR tracking + criteria gates + done list
-- [ ] `server/pr-tracker.ts` — detect `gh pr create` in stream, extract URL, poll status every 30s
-- [ ] `src/components/ui/PRBadge.tsx` — link + status chip (open/merged/closed)
-- [ ] Criteria gate on node completion: PR merged + all children done
-- [ ] `src/components/panels/DoneList.tsx` — collapsible sidebar, session-scoped
-- [ ] Node removal from graph when moved to done list
+- [x] `server/pr-tracker.ts` — detect `gh pr create` in stream, extract URL, poll status every 30s
+- [x] `src/components/ui/PRBadge.tsx` — link + status chip (open/merged/closed)
+- [x] Criteria gate on node completion: PR merged + all children done — `server/completion.ts`
+- [x] `src/components/panels/DoneList.tsx` — collapsible sidebar, session-scoped
+- [x] Node removal from graph when moved to done list
 - [ ] **Test:** run a session that creates a PR, see badge, merge it, see node move to done list
 
 ### Phase 7: Context summarization refinement
-- [ ] `server/context-summary.ts` — upgrade from Phase 3's raw prompt+response injection to a proper summary: spawn a quick `claude -p` call to summarize parent's terminal buffer into a concise context block
-- [ ] Pre-fill PromptEditor with editable summary when spawning children (replaces the raw injection from Phase 3)
+- [x] `server/context-summary.ts` — spawn a quick `claude -p` call to summarize parent's terminal buffer
+- [x] Pre-fill PromptEditor with editable summary when spawning children
 - [ ] Measure latency and cost impact of summarization calls
-- [ ] **Test:** spawn feature, let it run, spawn subtask from it, verify summary is concise and accurate in prompt editor
+- [ ] **Test:** spawn feature, let it run, spawn subtask from it, verify summary is concise and accurate
 
 ### Phase 8: Polish
-- [ ] Dagre auto-layout (left-to-right tree matching the sketch)
-- [ ] Dark mode (Tailwind + React Flow `colorMode="dark"`)
-- [ ] Multi-repo view (multiple root nodes)
-- [ ] Keyboard shortcuts (Esc to close panels, Cmd+N for new repo)
-- [ ] Error handling (session crashes, WS reconnect with state sync)
-- [ ] `bun install && bun start` one-liner startup
+- [x] Dagre auto-layout (left-to-right tree) + Re-layout button
+- [x] Dark mode (Tailwind + React Flow `colorMode="dark"`)
+- [x] Multi-repo view (multiple root nodes — supported via add_repo)
+- [x] Keyboard shortcuts (Esc to close panels, Cmd+N for new repo)
+- [x] Error handling (session crashes, WS reconnect with state sync, ErrorBoundary)
+- [x] `bun install && bun start` one-liner startup
 
 ---
 
