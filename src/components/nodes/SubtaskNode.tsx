@@ -18,8 +18,12 @@ const STATE_DOT: Record<NodeState, string> = {
   crashed: 'bg-red-600',
 };
 
+interface SubtaskNodeData extends WeftNode {
+  onSpawn?: (nodeId: string, spawnType: 'feature' | 'subtask') => void;
+}
+
 export function SubtaskNode({ data }: NodeProps) {
-  const node = data as unknown as WeftNode;
+  const node = data as unknown as SubtaskNodeData;
   const borderClass = STATE_STYLES[node.nodeState] ?? STATE_STYLES.idle;
   const dotClass = STATE_DOT[node.nodeState] ?? STATE_DOT.idle;
 
@@ -27,7 +31,19 @@ export function SubtaskNode({ data }: NodeProps) {
     <div className={`min-w-[140px] rounded-md border-l-3 ${borderClass} bg-zinc-800/90 px-3 py-2 shadow-md`}>
       <div className="flex items-center gap-1.5">
         <div className={`h-2 w-2 rounded-full ${dotClass}`} />
-        <div className="text-xs font-medium text-zinc-200 truncate">{node.title}</div>
+        <div className="text-xs font-medium text-zinc-200 truncate flex-1">{node.title}</div>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            node.onSpawn?.(node.id, 'subtask');
+          }}
+          className="rounded bg-zinc-600/40 p-0.5 text-zinc-400 hover:bg-zinc-600/70 hover:text-zinc-200 transition-colors"
+          title="Spawn Subtask"
+        >
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+            <path d="M6 2.5v7M2.5 6h7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          </svg>
+        </button>
       </div>
       <div className="mt-0.5 text-[10px] text-zinc-500">{node.displayStage}</div>
       <Handle type="target" position={Position.Left} className="!bg-zinc-400" />

@@ -22,10 +22,21 @@ const nodeTypes = {
 
 interface FlowCanvasProps {
   send: (msg: ClientMessage) => void;
+  onSpawn: (nodeId: string, spawnType: 'feature' | 'subtask') => void;
 }
 
-export function FlowCanvas({ send }: FlowCanvasProps) {
+export function FlowCanvas({ send, onSpawn }: FlowCanvasProps) {
   const { nodes, edges, setSelectedNode, onNodeDragStop } = useGraph();
+
+  // Inject onSpawn callback into all node data so nodes can trigger spawning
+  const nodesWithCallbacks = useMemo(
+    () =>
+      nodes.map((node) => ({
+        ...node,
+        data: { ...node.data, onSpawn },
+      })),
+    [nodes, onSpawn],
+  );
 
   const onNodeClick: NodeMouseHandler = useCallback(
     (_event, node) => {
@@ -57,7 +68,7 @@ export function FlowCanvas({ send }: FlowCanvasProps) {
 
   return (
     <ReactFlow
-      nodes={nodes}
+      nodes={nodesWithCallbacks}
       edges={edges}
       nodeTypes={nodeTypes}
       onNodeClick={onNodeClick}
