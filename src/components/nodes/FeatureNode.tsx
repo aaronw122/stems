@@ -1,6 +1,7 @@
 import { Handle, Position } from '@xyflow/react';
 import type { NodeProps } from '@xyflow/react';
 import type { WeftNode, NodeState } from '../../../shared/types.ts';
+import { PRBadge } from '../ui/PRBadge.tsx';
 
 const STATE_STYLES: Record<NodeState, string> = {
   idle: 'border-zinc-500',
@@ -45,7 +46,10 @@ export function FeatureNode({ data }: NodeProps) {
           </svg>
         </button>
       </div>
-      <div className="mt-1 text-xs text-zinc-500">{node.displayStage}</div>
+      <div className="mt-1 flex items-center gap-2">
+        <span className="text-xs text-zinc-500">{node.displayStage}</span>
+        <PRBadge prUrl={node.prUrl} prState={node.prState} />
+      </div>
       <Handle type="target" position={Position.Left} className="!bg-zinc-400" />
       <Handle type="source" position={Position.Right} className="!bg-zinc-400" />
     </div>

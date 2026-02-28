@@ -1,5 +1,7 @@
 import { broadcastTerminal } from './state.ts';
 import { updateNode, getNode, broadcast } from './state.ts';
+import { extractPRUrls, trackPR } from './pr-tracker.ts';
+import { autoMoveIfComplete } from './completion.ts';
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -104,6 +106,8 @@ export function createStreamParser(nodeId: string, callbacks: StreamCallbacks = 
           });
           if (updated) {
             broadcast({ type: 'node_updated', node: updated });
+            // Check if this node (and possibly its parent) can auto-complete
+            autoMoveIfComplete(nodeId);
           }
         }
         break;
@@ -130,6 +134,14 @@ export function createStreamParser(nodeId: string, callbacks: StreamCallbacks = 
         // Unknown event — log it for debugging
         lines.push(`[${event.type}] ${JSON.stringify(event).slice(0, 150)}`);
         break;
+      }
+    }
+
+    // Scan all output lines for PR URLs
+    for (const line of lines) {
+      const prUrls = extractPRUrls(line);
+      for (const prUrl of prUrls) {
+        trackPR(nodeId, prUrl);
       }
     }
 

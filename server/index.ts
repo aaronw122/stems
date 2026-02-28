@@ -17,6 +17,7 @@ import {
   broadcast,
 } from './state.ts';
 import { spawnSession, killSession, killAllSessions, sendInput, cleanupStaleProcesses } from './session.ts';
+import { stopPolling as stopPRPolling, stopTracking as stopPRTracking } from './pr-tracker.ts';
 import { join } from 'node:path';
 import { basename } from 'node:path';
 
@@ -170,6 +171,7 @@ async function handleMessage(ws: ServerWebSocket<unknown>, raw: string): Promise
 
     case 'close_node': {
       await killSession(msg.nodeId);
+      stopPRTracking(msg.nodeId);
       const removed = removeNode(msg.nodeId);
       if (removed) {
         addToDoneList(removed);
@@ -276,12 +278,14 @@ console.log(`weft-flow server listening on http://localhost:${server.port}`);
 
 process.on('SIGTERM', async () => {
   console.log('[shutdown] SIGTERM received, killing sessions...');
+  stopPRPolling();
   await killAllSessions();
   process.exit(0);
 });
 
 process.on('SIGINT', async () => {
   console.log('[shutdown] SIGINT received, killing sessions...');
+  stopPRPolling();
   await killAllSessions();
   process.exit(0);
 });
