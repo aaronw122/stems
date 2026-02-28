@@ -1,0 +1,82 @@
+import { useCallback, useMemo } from 'react';
+import {
+  ReactFlow,
+  Background,
+  Controls,
+  MiniMap,
+} from '@xyflow/react';
+import type { NodeMouseHandler, OnNodeDrag } from '@xyflow/react';
+import '@xyflow/react/dist/style.css';
+
+import { RepoNode } from './nodes/RepoNode.tsx';
+import { FeatureNode } from './nodes/FeatureNode.tsx';
+import { SubtaskNode } from './nodes/SubtaskNode.tsx';
+import { useGraph } from '../hooks/useGraph.ts';
+import type { ClientMessage } from '../../shared/types.ts';
+
+const nodeTypes = {
+  repo: RepoNode,
+  feature: FeatureNode,
+  subtask: SubtaskNode,
+};
+
+interface FlowCanvasProps {
+  send: (msg: ClientMessage) => void;
+}
+
+export function FlowCanvas({ send }: FlowCanvasProps) {
+  const { nodes, edges, setSelectedNode, onNodeDragStop } = useGraph();
+
+  const onNodeClick: NodeMouseHandler = useCallback(
+    (_event, node) => {
+      setSelectedNode(node.id);
+    },
+    [setSelectedNode],
+  );
+
+  const handleNodeDragStop: OnNodeDrag = useCallback(
+    (_event, node) => {
+      onNodeDragStop(node.id, node.position.x, node.position.y);
+      send({
+        type: 'node_moved',
+        nodeId: node.id,
+        x: node.position.x,
+        y: node.position.y,
+      });
+    },
+    [onNodeDragStop, send],
+  );
+
+  const defaultEdgeOptions = useMemo(
+    () => ({
+      style: { stroke: '#525252', strokeWidth: 2 },
+      animated: false,
+    }),
+    [],
+  );
+
+  return (
+    <ReactFlow
+      nodes={nodes}
+      edges={edges}
+      nodeTypes={nodeTypes}
+      onNodeClick={onNodeClick}
+      onNodeDragStop={handleNodeDragStop}
+      defaultEdgeOptions={defaultEdgeOptions}
+      colorMode="dark"
+      fitView
+      proOptions={{ hideAttribution: true }}
+    >
+      <Background color="#333" gap={20} />
+      <Controls />
+      <MiniMap
+        nodeColor={(node) => {
+          if (node.type === 'repo') return '#22c55e';
+          if (node.type === 'feature') return '#3b82f6';
+          return '#6b7280';
+        }}
+        style={{ background: '#1a1a1a' }}
+      />
+    </ReactFlow>
+  );
+}

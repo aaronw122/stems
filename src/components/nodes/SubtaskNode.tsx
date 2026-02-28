@@ -1,0 +1,37 @@
+import { Handle, Position } from '@xyflow/react';
+import type { NodeProps } from '@xyflow/react';
+import type { WeftNode, NodeState } from '../../../shared/types.ts';
+
+const STATE_STYLES: Record<NodeState, string> = {
+  idle: 'border-zinc-500',
+  running: 'border-blue-500',
+  'needs-human': 'border-red-500 needs-human-pulse',
+  completed: 'border-green-500',
+  crashed: 'border-red-600',
+};
+
+const STATE_DOT: Record<NodeState, string> = {
+  idle: 'bg-zinc-500',
+  running: 'bg-blue-500',
+  'needs-human': 'bg-red-500',
+  completed: 'bg-green-500',
+  crashed: 'bg-red-600',
+};
+
+export function SubtaskNode({ data }: NodeProps) {
+  const node = data as unknown as WeftNode;
+  const borderClass = STATE_STYLES[node.nodeState] ?? STATE_STYLES.idle;
+  const dotClass = STATE_DOT[node.nodeState] ?? STATE_DOT.idle;
+
+  return (
+    <div className={`min-w-[140px] rounded-md border-l-3 ${borderClass} bg-zinc-800/90 px-3 py-2 shadow-md`}>
+      <div className="flex items-center gap-1.5">
+        <div className={`h-2 w-2 rounded-full ${dotClass}`} />
+        <div className="text-xs font-medium text-zinc-200 truncate">{node.title}</div>
+      </div>
+      <div className="mt-0.5 text-[10px] text-zinc-500">{node.displayStage}</div>
+      <Handle type="target" position={Position.Left} className="!bg-zinc-400" />
+      <Handle type="source" position={Position.Right} className="!bg-zinc-400" />
+    </div>
+  );
+}
