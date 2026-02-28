@@ -5,6 +5,7 @@ import { OverlapBadge } from '../ui/OverlapBadge.tsx';
 import { StageBadge } from '../ui/StageBadge.tsx';
 import { HumanFlash } from '../ui/HumanFlash.tsx';
 import { EditableTitle } from '../ui/EditableTitle.tsx';
+import { PRBadge } from '../ui/PRBadge.tsx';
 
 const STATE_STYLES: Record<NodeState, string> = {
   idle: 'border-zinc-500',
@@ -58,6 +59,7 @@ export function FeatureNode({ data }: NodeProps) {
       <div className="mt-1 flex items-center gap-2">
         <StageBadge displayStage={node.displayStage} nodeState={node.nodeState} />
         {node.nodeState === 'running' && <OverlapBadge overlap={node.overlap} />}
+        <PRBadge prUrl={node.prUrl} prState={node.prState} />
       </div>
       <HumanFlash needsHuman={node.needsHuman} humanNeededType={node.humanNeededType} />
       <Handle type="target" position={Position.Left} className="!bg-zinc-400" />

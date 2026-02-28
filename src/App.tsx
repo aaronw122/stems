@@ -2,15 +2,18 @@ import { useState, useCallback, useEffect } from 'react';
 import { FlowCanvas } from './components/FlowCanvas.tsx';
 import { PromptEditor } from './components/panels/PromptEditor.tsx';
 import { TerminalPeek } from './components/panels/TerminalPeek.tsx';
+import { DoneList } from './components/panels/DoneList.tsx';
 import { useWebSocket } from './hooks/useWebSocket.ts';
 import { useGraph } from './hooks/useGraph.ts';
 
 export default function App() {
   const { processMessage, nodes } = useGraph();
+  const doneList = useGraph((s) => s.doneList);
   const { send, isConnected } = useWebSocket(processMessage);
 
   const [showAddRepo, setShowAddRepo] = useState(false);
   const [repoPath, setRepoPath] = useState('');
+  const [doneListOpen, setDoneListOpen] = useState(false);
 
   // ── PromptEditor state ──────────────────────────────────────────────
   const [promptEditor, setPromptEditor] = useState<{
@@ -207,6 +210,13 @@ export default function App() {
             onSendInput={handleTerminalInput}
           />
         )}
+
+        {/* Done List sidebar */}
+        <DoneList
+          doneList={doneList}
+          isOpen={doneListOpen}
+          onToggle={() => setDoneListOpen((prev) => !prev)}
+        />
       </div>
     </div>
   );
