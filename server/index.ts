@@ -17,6 +17,7 @@ import {
   broadcast,
 } from './state.ts';
 import { spawnSession, killSession, killAllSessions, sendInput, cleanupStaleProcesses } from './session.ts';
+import { getAllActiveFiles, clearNode as clearOverlapNode } from './overlap-tracker.ts';
 import { join } from 'node:path';
 import { basename } from 'node:path';
 
@@ -92,6 +93,30 @@ function findRepoPath(nodeId: string): string | null {
   return null;
 }
 
+// ── Overlap context builder ──────────────────────────────────────────
+
+function buildOverlapContext(): string | undefined {
+  const activeFiles = getAllActiveFiles();
+  if (activeFiles.size === 0) return undefined;
+
+  const parts: string[] = [];
+  const allFiles = new Set<string>();
+
+  for (const [nId, files] of activeFiles) {
+    const node = getNode(nId);
+    const label = node ? node.title : nId;
+    parts.push(`- ${label}: ${files.join(', ')}`);
+    for (const f of files) {
+      allFiles.add(f);
+    }
+  }
+
+  return [
+    'Other active sessions are currently editing files. Avoid modifying these files if possible:',
+    ...parts,
+  ].join('\n');
+}
+
 // ── Message handler ──────────────────────────────────────────────────
 
 async function handleMessage(ws: ServerWebSocket<unknown>, raw: string): Promise<void> {
@@ -129,14 +154,24 @@ async function handleMessage(ws: ServerWebSocket<unknown>, raw: string): Promise
       // Find repo path and spawn session
       const repoPath = findRepoPath(msg.parentId);
       if (repoPath) {
+        // Build system prompt additions
+        const promptParts: string[] = [];
+
         // For subtasks, inject parent's prompt as context
-        let appendSystemPrompt: string | undefined;
         if (childType === 'subtask') {
           const parentNode = getNode(msg.parentId);
           if (parentNode?.prompt) {
-            appendSystemPrompt = `Context from parent task: ${parentNode.prompt}`;
+            promptParts.push(`Context from parent task: ${parentNode.prompt}`);
           }
         }
+
+        // Inject overlap context so the session knows which files to avoid
+        const overlapCtx = buildOverlapContext();
+        if (overlapCtx) {
+          promptParts.push(overlapCtx);
+        }
+
+        const appendSystemPrompt = promptParts.length > 0 ? promptParts.join('\n\n') : undefined;
         await spawnSession(node.id, repoPath, msg.prompt, appendSystemPrompt);
       } else {
         const updated = updateNode(node.id, {
@@ -170,6 +205,7 @@ async function handleMessage(ws: ServerWebSocket<unknown>, raw: string): Promise
 
     case 'close_node': {
       await killSession(msg.nodeId);
+      clearOverlapNode(msg.nodeId);
       const removed = removeNode(msg.nodeId);
       if (removed) {
         addToDoneList(removed);

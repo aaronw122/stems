@@ -1,6 +1,7 @@
 import { Handle, Position } from '@xyflow/react';
 import type { NodeProps } from '@xyflow/react';
 import type { WeftNode, NodeState } from '../../../shared/types.ts';
+import { OverlapBadge } from '../ui/OverlapBadge.tsx';
 
 const STATE_STYLES: Record<NodeState, string> = {
   idle: 'border-zinc-500',
@@ -45,7 +46,10 @@ export function SubtaskNode({ data }: NodeProps) {
           </svg>
         </button>
       </div>
-      <div className="mt-0.5 text-[10px] text-zinc-500">{node.displayStage}</div>
+      <div className="mt-0.5 flex items-center gap-1.5">
+        <span className="text-[10px] text-zinc-500">{node.displayStage}</span>
+        {node.nodeState === 'running' && <OverlapBadge overlap={node.overlap} />}
+      </div>
       <Handle type="target" position={Position.Left} className="!bg-zinc-400" />
       <Handle type="source" position={Position.Right} className="!bg-zinc-400" />
     </div>
