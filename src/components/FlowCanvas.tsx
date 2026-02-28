@@ -28,14 +28,21 @@ interface FlowCanvasProps {
 export function FlowCanvas({ send, onSpawn }: FlowCanvasProps) {
   const { nodes, edges, setSelectedNode, onNodeDragStop } = useGraph();
 
-  // Inject onSpawn callback into all node data so nodes can trigger spawning
+  const handleUpdateTitle = useCallback(
+    (nodeId: string, title: string) => {
+      send({ type: 'update_title', nodeId, title });
+    },
+    [send],
+  );
+
+  // Inject callbacks into all node data so nodes can trigger spawning and title updates
   const nodesWithCallbacks = useMemo(
     () =>
       nodes.map((node) => ({
         ...node,
-        data: { ...node.data, onSpawn },
+        data: { ...node.data, onSpawn, onUpdateTitle: handleUpdateTitle },
       })),
-    [nodes, onSpawn],
+    [nodes, onSpawn, handleUpdateTitle],
   );
 
   const onNodeClick: NodeMouseHandler = useCallback(
