@@ -4,8 +4,10 @@ import {
   Background,
   Controls,
   MiniMap,
+  applyNodeChanges,
+  applyEdgeChanges,
 } from '@xyflow/react';
-import type { NodeMouseHandler, OnNodeDrag } from '@xyflow/react';
+import type { NodeMouseHandler, OnNodeDrag, OnNodesChange, OnEdgesChange } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
 import { RepoNode } from './nodes/RepoNode.tsx';
@@ -26,7 +28,12 @@ interface FlowCanvasProps {
 }
 
 export function FlowCanvas({ send, onSpawn }: FlowCanvasProps) {
-  const { nodes, edges, setSelectedNode, onNodeDragStop } = useGraph();
+  const nodes = useGraph((s) => s.nodes);
+  const edges = useGraph((s) => s.edges);
+  const setSelectedNode = useGraph((s) => s.setSelectedNode);
+  const onNodeDragStop = useGraph((s) => s.onNodeDragStop);
+  const applyChanges = useGraph((s) => s.applyNodeChanges);
+  const applyEdgeChangesStore = useGraph((s) => s.applyEdgeChanges);
 
   const handleUpdateTitle = useCallback(
     (nodeId: string, title: string) => {
@@ -65,6 +72,20 @@ export function FlowCanvas({ send, onSpawn }: FlowCanvasProps) {
     [onNodeDragStop, send],
   );
 
+  const handleNodesChange: OnNodesChange = useCallback(
+    (changes) => {
+      applyChanges(changes);
+    },
+    [applyChanges],
+  );
+
+  const handleEdgesChange: OnEdgesChange = useCallback(
+    (changes) => {
+      applyEdgeChangesStore(changes);
+    },
+    [applyEdgeChangesStore],
+  );
+
   const defaultEdgeOptions = useMemo(
     () => ({
       style: { stroke: '#525252', strokeWidth: 2 },
@@ -78,6 +99,8 @@ export function FlowCanvas({ send, onSpawn }: FlowCanvasProps) {
       nodes={nodesWithCallbacks}
       edges={edges}
       nodeTypes={nodeTypes}
+      onNodesChange={handleNodesChange}
+      onEdgesChange={handleEdgesChange}
       onNodeClick={onNodeClick}
       onNodeDragStop={handleNodeDragStop}
       defaultEdgeOptions={defaultEdgeOptions}

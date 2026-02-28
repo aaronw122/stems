@@ -4,14 +4,12 @@ import { useTerminal } from './useTerminal.ts';
 
 interface UseWebSocketReturn {
   send: (msg: ClientMessage) => void;
-  lastMessage: ServerMessage | null;
   isConnected: boolean;
 }
 
 export function useWebSocket(onMessage?: (msg: ServerMessage) => void): UseWebSocketReturn {
   const wsRef = useRef<WebSocket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
-  const [lastMessage, setLastMessage] = useState<ServerMessage | null>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectDelayRef = useRef(1000);
   const onMessageRef = useRef(onMessage);
@@ -28,15 +26,14 @@ export function useWebSocket(onMessage?: (msg: ServerMessage) => void): UseWebSo
 
     ws.onopen = () => {
       setIsConnected(true);
-      reconnectDelayRef.current = 1000; // Reset backoff on successful connect
+      reconnectDelayRef.current = 1000;
     };
 
     ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data as string) as ServerMessage;
-        setLastMessage(msg);
 
-        // Route terminal_data to the terminal store
+        // Route terminal_data to the terminal store (outside React Flow)
         if (msg.type === 'terminal_data') {
           appendLines(msg.nodeId, msg.lines);
         }
@@ -52,7 +49,6 @@ export function useWebSocket(onMessage?: (msg: ServerMessage) => void): UseWebSo
       setIsConnected(false);
       wsRef.current = null;
 
-      // Exponential backoff reconnect
       const delay = reconnectDelayRef.current;
       reconnectDelayRef.current = Math.min(delay * 2, 30000);
 
@@ -85,5 +81,5 @@ export function useWebSocket(onMessage?: (msg: ServerMessage) => void): UseWebSo
     }
   }, []);
 
-  return { send, lastMessage, isConnected };
+  return { send, isConnected };
 }

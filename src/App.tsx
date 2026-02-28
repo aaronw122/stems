@@ -7,7 +7,8 @@ import { useWebSocket } from './hooks/useWebSocket.ts';
 import { useGraph } from './hooks/useGraph.ts';
 
 export default function App() {
-  const { processMessage, nodes } = useGraph();
+  const processMessage = useGraph((s) => s.processMessage);
+  const nodes = useGraph((s) => s.nodes);
   const doneList = useGraph((s) => s.doneList);
   const { send, isConnected } = useWebSocket(processMessage);
 

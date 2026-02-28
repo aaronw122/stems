@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import dagre from 'dagre';
-import type { Node, Edge } from '@xyflow/react';
+import type { Node, Edge, NodeChange, EdgeChange } from '@xyflow/react';
+import { applyNodeChanges as xyApplyNodeChanges, applyEdgeChanges as xyApplyEdgeChanges } from '@xyflow/react';
 import type { WeftNode, WeftEdge, ServerMessage } from '../../shared/types.ts';
 
 // ── Dagre layout ─────────────────────────────────────────────────────
@@ -85,6 +86,8 @@ interface GraphState {
   processMessage: (msg: ServerMessage) => void;
   setSelectedNode: (id: string | null) => void;
   onNodeDragStop: (id: string, x: number, y: number) => void;
+  applyNodeChanges: (changes: NodeChange[]) => void;
+  applyEdgeChanges: (changes: EdgeChange[]) => void;
   relayout: () => void;
 }
 
@@ -160,6 +163,18 @@ export const useGraph = create<GraphState>((set, get) => ({
       nodes: state.nodes.map((n) =>
         n.id === id ? { ...n, position: { x, y } } : n,
       ),
+    }));
+  },
+
+  applyNodeChanges(changes: NodeChange[]) {
+    set((state) => ({
+      nodes: xyApplyNodeChanges(changes, state.nodes),
+    }));
+  },
+
+  applyEdgeChanges(changes: EdgeChange[]) {
+    set((state) => ({
+      edges: xyApplyEdgeChanges(changes, state.edges),
     }));
   },
 
