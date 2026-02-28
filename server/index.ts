@@ -15,12 +15,13 @@ import {
   subscribeTerminal,
   unsubscribeTerminal,
   broadcast,
+  clearTerminalBuffer,
 } from './state.ts';
 import { spawnSession, killSession, killAllSessions, sendInput, cleanupStaleProcesses } from './session.ts';
 import { getAllActiveFiles, clearNode as clearOverlapNode } from './overlap-tracker.ts';
 import { stopPolling as stopPRPolling, stopTracking as stopPRTracking } from './pr-tracker.ts';
-import { join } from 'node:path';
-import { basename } from 'node:path';
+import { summarizeContext } from './context-summary.ts';
+import { join, basename } from 'node:path';
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -101,15 +102,11 @@ function buildOverlapContext(): string | undefined {
   if (activeFiles.size === 0) return undefined;
 
   const parts: string[] = [];
-  const allFiles = new Set<string>();
 
   for (const [nId, files] of activeFiles) {
     const node = getNode(nId);
     const label = node ? node.title : nId;
     parts.push(`- ${label}: ${files.join(', ')}`);
-    for (const f of files) {
-      allFiles.add(f);
-    }
   }
 
   return [
@@ -208,6 +205,7 @@ async function handleMessage(ws: ServerWebSocket<unknown>, raw: string): Promise
       await killSession(msg.nodeId);
       clearOverlapNode(msg.nodeId);
       stopPRTracking(msg.nodeId);
+      clearTerminalBuffer(msg.nodeId);
       const removed = removeNode(msg.nodeId);
       if (removed) {
         addToDoneList(removed);
@@ -255,7 +253,7 @@ await cleanupStaleProcesses();
 const server = Bun.serve({
   port: 4800,
 
-  fetch(req) {
+  async fetch(req) {
     const url = new URL(req.url);
 
     // WebSocket upgrade
@@ -270,6 +268,29 @@ const server = Bun.serve({
       return new Response(JSON.stringify({ status: 'ok' }), {
         headers: { 'Content-Type': 'application/json' },
       });
+    }
+
+    // Context summarization for subtask spawning
+    const contextMatch = url.pathname.match(/^\/api\/context\/(.+)$/);
+    if (contextMatch) {
+      const nodeId = contextMatch[1]!;
+      const node = getNode(nodeId);
+      if (!node) {
+        return new Response(JSON.stringify({ error: 'Node not found' }), {
+          status: 404,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      try {
+        const context = await summarizeContext(nodeId);
+        return new Response(JSON.stringify({ context }), {
+          headers: { 'Content-Type': 'application/json' },
+        });
+      } catch {
+        return new Response(JSON.stringify({ context: node.prompt ?? '' }), {
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
     }
 
     // Static file serving for production builds

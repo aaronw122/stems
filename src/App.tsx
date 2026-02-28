@@ -43,9 +43,13 @@ export default function App() {
     };
   }, [selectedNodeId, send]);
 
-  // ── Global Esc key ──────────────────────────────────────────────────
+  // ── Global keyboard shortcuts ───────────────────────────────────────
   useEffect(() => {
     function handleGlobalKeyDown(e: KeyboardEvent) {
+      // Don't intercept shortcuts when typing in an input or textarea
+      const tag = (e.target as HTMLElement)?.tagName;
+      const isInputFocused = tag === 'INPUT' || tag === 'TEXTAREA';
+
       if (e.key === 'Escape') {
         if (promptEditor.isOpen) {
           setPromptEditor((prev) => ({ ...prev, isOpen: false }));
@@ -55,12 +59,20 @@ export default function App() {
         } else if (showAddRepo) {
           setShowAddRepo(false);
           setRepoPath('');
+        } else if (doneListOpen) {
+          setDoneListOpen(false);
         }
+      }
+
+      // Cmd+N: Open Add Repo dialog
+      if ((e.metaKey || e.ctrlKey) && e.key === 'n' && !isInputFocused) {
+        e.preventDefault();
+        setShowAddRepo(true);
       }
     }
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [promptEditor.isOpen, selectedNodeId, showAddRepo]);
+  }, [promptEditor.isOpen, selectedNodeId, showAddRepo, doneListOpen]);
 
   // ── Handlers ────────────────────────────────────────────────────────
 
@@ -149,13 +161,22 @@ export default function App() {
           {isConnected ? 'Connected' : 'Disconnected'}
         </div>
 
-        {/* Add Repo button */}
-        <button
-          onClick={() => setShowAddRepo(true)}
-          className="absolute top-4 left-4 rounded-md bg-zinc-700 px-3 py-1.5 text-sm text-zinc-200 hover:bg-zinc-600 transition-colors"
-        >
-          + Add Repo
-        </button>
+        {/* Toolbar buttons */}
+        <div className="absolute top-4 left-4 flex items-center gap-2">
+          <button
+            onClick={() => setShowAddRepo(true)}
+            className="rounded-md bg-zinc-700 px-3 py-1.5 text-sm text-zinc-200 hover:bg-zinc-600 transition-colors"
+          >
+            + Add Repo
+          </button>
+          <button
+            onClick={() => useGraph.getState().relayout()}
+            className="rounded-md bg-zinc-700 px-3 py-1.5 text-sm text-zinc-200 hover:bg-zinc-600 transition-colors"
+            title="Re-layout graph (dagre)"
+          >
+            Re-layout
+          </button>
+        </div>
 
         {/* Add Repo modal */}
         {showAddRepo && (

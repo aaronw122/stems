@@ -85,6 +85,7 @@ interface GraphState {
   processMessage: (msg: ServerMessage) => void;
   setSelectedNode: (id: string | null) => void;
   onNodeDragStop: (id: string, x: number, y: number) => void;
+  relayout: () => void;
 }
 
 export const useGraph = create<GraphState>((set, get) => ({
@@ -160,5 +161,11 @@ export const useGraph = create<GraphState>((set, get) => ({
         n.id === id ? { ...n, position: { x, y } } : n,
       ),
     }));
+  },
+
+  relayout() {
+    const { nodes, edges } = get();
+    const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(nodes, edges);
+    set({ nodes: layoutedNodes, edges: layoutedEdges });
   },
 }));

@@ -12,6 +12,32 @@ const doneList: WeftNode[] = [];
 const clients = new Set<ServerWebSocket<unknown>>();
 const terminalSubscriptions = new Map<string, Set<ServerWebSocket<unknown>>>();
 
+// ── Server-side terminal buffers (for context summarization) ────────
+
+const MAX_SERVER_LINES = 200;
+const terminalBuffers = new Map<string, string[]>();
+
+export function appendTerminalLines(nodeId: string, lines: string[]): void {
+  const existing = terminalBuffers.get(nodeId) ?? [];
+  const combined = [...existing, ...lines];
+  const trimmed = combined.length > MAX_SERVER_LINES
+    ? combined.slice(combined.length - MAX_SERVER_LINES)
+    : combined;
+  terminalBuffers.set(nodeId, trimmed);
+}
+
+export function getTerminalLines(nodeId: string, lastN?: number): string[] {
+  const buf = terminalBuffers.get(nodeId) ?? [];
+  if (lastN && lastN < buf.length) {
+    return buf.slice(buf.length - lastN);
+  }
+  return [...buf];
+}
+
+export function clearTerminalBuffer(nodeId: string): void {
+  terminalBuffers.delete(nodeId);
+}
+
 // ── CRUD ─────────────────────────────────────────────────────────────
 
 export function addNode(node: WeftNode): void {
@@ -120,6 +146,9 @@ export function broadcast(msg: ServerMessage): void {
 }
 
 export function broadcastTerminal(nodeId: string, lines: string[]): void {
+  // Store lines server-side for context summarization
+  appendTerminalLines(nodeId, lines);
+
   const subs = terminalSubscriptions.get(nodeId);
   if (!subs || subs.size === 0) return;
 
