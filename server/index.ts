@@ -115,6 +115,7 @@ async function handleMessage(ws: ServerWebSocket<unknown>, raw: string): Promise
     case 'spawn_subtask': {
       const childType = msg.type === 'spawn_feature' ? 'feature' : 'subtask';
       const node = makeChildNode(msg.parentId, childType as 'feature' | 'subtask', msg.title);
+      node.prompt = msg.prompt;
       addNode(node);
 
       const edge: WeftEdge = {
@@ -128,7 +129,15 @@ async function handleMessage(ws: ServerWebSocket<unknown>, raw: string): Promise
       // Find repo path and spawn session
       const repoPath = findRepoPath(msg.parentId);
       if (repoPath) {
-        await spawnSession(node.id, repoPath, msg.prompt);
+        // For subtasks, inject parent's prompt as context
+        let appendSystemPrompt: string | undefined;
+        if (childType === 'subtask') {
+          const parentNode = getNode(msg.parentId);
+          if (parentNode?.prompt) {
+            appendSystemPrompt = `Context from parent task: ${parentNode.prompt}`;
+          }
+        }
+        await spawnSession(node.id, repoPath, msg.prompt, appendSystemPrompt);
       } else {
         const updated = updateNode(node.id, {
           nodeState: 'crashed',

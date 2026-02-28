@@ -1,5 +1,6 @@
 import { useRef, useState, useEffect, useCallback } from 'react';
 import type { ClientMessage, ServerMessage } from '../../shared/types.ts';
+import { useTerminal } from './useTerminal.ts';
 
 interface UseWebSocketReturn {
   send: (msg: ClientMessage) => void;
@@ -15,6 +16,8 @@ export function useWebSocket(onMessage?: (msg: ServerMessage) => void): UseWebSo
   const reconnectDelayRef = useRef(1000);
   const onMessageRef = useRef(onMessage);
   onMessageRef.current = onMessage;
+
+  const appendLines = useTerminal((s) => s.appendLines);
 
   const connect = useCallback(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -32,6 +35,13 @@ export function useWebSocket(onMessage?: (msg: ServerMessage) => void): UseWebSo
       try {
         const msg = JSON.parse(event.data as string) as ServerMessage;
         setLastMessage(msg);
+
+        // Route terminal_data to the terminal store
+        if (msg.type === 'terminal_data') {
+          appendLines(msg.nodeId, msg.lines);
+        }
+
+        // Route all messages to the graph store / other handlers
         onMessageRef.current?.(msg);
       } catch {
         console.error('[ws] Failed to parse message:', event.data);
@@ -54,7 +64,7 @@ export function useWebSocket(onMessage?: (msg: ServerMessage) => void): UseWebSo
     ws.onerror = () => {
       // onclose will fire after onerror, triggering reconnect
     };
-  }, []);
+  }, [appendLines]);
 
   useEffect(() => {
     connect();

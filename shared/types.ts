@@ -36,6 +36,9 @@ export interface WeftNode {
   x: number;
   y: number;
 
+  /** The prompt used to spawn this node's session */
+  prompt?: string;
+
   /** Only present on repo nodes */
   repoPath?: string;
   /** Optional branch name */
