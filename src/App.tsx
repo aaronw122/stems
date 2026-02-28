@@ -23,14 +23,8 @@ export default function App() {
     spawnType: 'feature' | 'subtask';
   }>({ isOpen: false, parentNodeId: '', spawnType: 'feature' });
 
-  // ── TerminalPeek state ──────────────────────────────────────────────
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-
-  // Sync with graph store's selectedNodeId
-  const graphSelectedNodeId = useGraph((s) => s.selectedNodeId);
-  useEffect(() => {
-    setSelectedNodeId(graphSelectedNodeId);
-  }, [graphSelectedNodeId]);
+  // ── Selected node (single source of truth: Zustand store) ──────────
+  const selectedNodeId = useGraph((s) => s.selectedNodeId);
 
   // Subscribe/unsubscribe terminal when selectedNodeId changes
   useEffect(() => {
@@ -55,7 +49,6 @@ export default function App() {
         if (promptEditor.isOpen) {
           setPromptEditor((prev) => ({ ...prev, isOpen: false }));
         } else if (selectedNodeId) {
-          setSelectedNodeId(null);
           useGraph.getState().setSelectedNode(null);
         } else if (showAddRepo) {
           setShowAddRepo(false);
@@ -125,7 +118,6 @@ export default function App() {
   );
 
   const handleTerminalClose = useCallback(() => {
-    setSelectedNodeId(null);
     useGraph.getState().setSelectedNode(null);
   }, []);
 
