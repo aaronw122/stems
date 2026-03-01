@@ -19,7 +19,7 @@ import {
   clearHumanNeeded,
   getTerminalLines,
 } from './state.ts';
-import { spawnSession, killSession, killAllSessions, sendInput, cleanupStaleProcesses } from './session.ts';
+import { spawnSession, hasSession, killSession, killAllSessions, sendInput, cleanupStaleProcesses } from './session.ts';
 import { getAllActiveFiles, clearNode as clearOverlapNode } from './overlap-tracker.ts';
 import { stopPolling as stopPRPolling, stopTracking as stopPRTracking } from './pr-tracker.ts';
 import { summarizeContext } from './context-summary.ts';
@@ -151,9 +151,11 @@ async function handleMessage(ws: ServerWebSocket<unknown>, raw: string): Promise
       addEdge(edge);
       broadcast({ type: 'node_added', node, edge });
 
-      // Find repo path and spawn session
+      // Find repo path and spawn session (only if prompt provided;
+      // interactive sessions defer spawn until the user sends first message
+      // because `claude -p` exits immediately without a prompt)
       const repoPath = findRepoPath(msg.parentId);
-      if (repoPath) {
+      if (repoPath && msg.prompt) {
         // Build system prompt additions
         const promptParts: string[] = [];
 
@@ -173,7 +175,7 @@ async function handleMessage(ws: ServerWebSocket<unknown>, raw: string): Promise
 
         const appendSystemPrompt = promptParts.length > 0 ? promptParts.join('\n\n') : undefined;
         await spawnSession(node.id, repoPath, msg.prompt, appendSystemPrompt);
-      } else {
+      } else if (!repoPath) {
         const updated = updateNode(node.id, {
           nodeState: 'crashed',
           errorInfo: { type: 'no_repo', message: 'Could not find repo path for this node' },
@@ -236,12 +238,45 @@ async function handleMessage(ws: ServerWebSocket<unknown>, raw: string): Promise
 
     case 'send_input': {
       const { nodeId, payload } = msg;
+      console.log(`[ws:send_input] nodeId=${nodeId}, kind=${payload.kind}, hasSession=${hasSession(nodeId)}`);
 
       // Clear human-needed for question/permission responses (not errors —
       // clearing an error state would resurrect a crashed node)
       const inputNode = getNode(nodeId);
       if (inputNode?.humanNeededType === 'question' || inputNode?.humanNeededType === 'permission') {
         clearHumanNeeded(nodeId);
+      }
+
+      // Deferred spawn: if no session exists yet (interactive mode), the user's
+      // first text_input spawns the session with their message as the prompt.
+      // This works around `claude -p` exiting immediately without a prompt arg.
+      if (payload.kind === 'text_input' && !hasSession(nodeId)) {
+        const repoPath = findRepoPath(nodeId);
+        if (repoPath) {
+          const promptParts: string[] = [];
+          const node = getNode(nodeId);
+
+          // For subtasks, inject parent context
+          if (node?.type === 'subtask' && node.parentId) {
+            const parentNode = getNode(node.parentId);
+            if (parentNode?.prompt) {
+              promptParts.push(`Context from parent task: ${parentNode.prompt}`);
+            }
+          }
+
+          const overlapCtx = buildOverlapContext();
+          if (overlapCtx) promptParts.push(overlapCtx);
+
+          const appendSystemPrompt = promptParts.length > 0 ? promptParts.join('\n\n') : undefined;
+
+          // Store the prompt on the node for future context
+          if (node) {
+            updateNode(nodeId, { prompt: payload.text });
+          }
+
+          await spawnSession(nodeId, repoPath, payload.text, appendSystemPrompt);
+          break;
+        }
       }
 
       switch (payload.kind) {

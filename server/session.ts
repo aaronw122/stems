@@ -73,6 +73,9 @@ export async function spawnSession(
     args.push('--append-system-prompt', appendSystemPrompt);
   }
 
+  console.log(`[session:${nodeId}] spawning: ${args.join(' ')}`);
+  console.log(`[session:${nodeId}] cwd: ${repoPath}, interactive: ${interactive}, prompt: ${prompt ? prompt.slice(0, 80) + '...' : '(none)'}`);
+
   const proc = Bun.spawn(args, {
     cwd: repoPath,
     stdout: 'pipe',
@@ -81,15 +84,24 @@ export async function spawnSession(
     env: getCleanEnv(),
   });
 
+  console.log(`[session:${nodeId}] spawned pid: ${proc.pid}`);
+
   sessions.set(nodeId, { process: proc, nodeId, interactive });
 
-  // One-shot mode: send the prompt as a stream-json user_message on stdin
-  if (!interactive && prompt) {
+  // Send the prompt as a stream-json user_message on stdin
+  if (prompt) {
     const stdinStream = proc.stdin;
     if (stdinStream && typeof stdinStream === 'object' && 'write' in stdinStream) {
-      const sink = stdinStream as { write(data: Uint8Array | string): number };
+      const sink = stdinStream as { write(data: Uint8Array | string): number; flush?(): void };
       const msg = JSON.stringify({ type: 'user_message', content: prompt });
+      console.log(`[session:${nodeId}] writing to stdin: ${msg.slice(0, 120)}...`);
       sink.write(msg + '\n');
+      if (typeof sink.flush === 'function') {
+        sink.flush();
+        console.log(`[session:${nodeId}] stdin flushed`);
+      }
+    } else {
+      console.error(`[session:${nodeId}] stdin not writable!`, typeof stdinStream);
     }
   }
 
@@ -118,6 +130,7 @@ export async function spawnSession(
 
   // Handle process exit
   proc.exited.then(async (code) => {
+    console.log(`[session:${nodeId}] process exited with code ${code}`);
     sessions.delete(nodeId);
     await writePidFile();
 
@@ -160,6 +173,10 @@ async function drainStderr(nodeId: string, stream: ReadableStream<Uint8Array>): 
 
 // ── Kill a session ───────────────────────────────────────────────────
 
+export function hasSession(nodeId: string): boolean {
+  return sessions.has(nodeId);
+}
+
 export async function killSession(nodeId: string): Promise<void> {
   const session = sessions.get(nodeId);
   if (!session) return;
@@ -192,14 +209,21 @@ export async function killAllSessions(): Promise<void> {
 
 export function sendInput(nodeId: string, text: string): void {
   const session = sessions.get(nodeId);
-  if (!session) return;
+  if (!session) {
+    console.warn(`[sendInput:${nodeId}] no session found — input dropped`);
+    return;
+  }
 
   const stdinStream = session.process.stdin;
   if (stdinStream && typeof stdinStream === 'object' && 'write' in stdinStream) {
-    const sink = stdinStream as { write(data: Uint8Array | string): number };
+    const sink = stdinStream as { write(data: Uint8Array | string): number; flush?(): void };
     // All sessions now use --input-format stream-json
     const msg = JSON.stringify({ type: 'user_message', content: text });
+    console.log(`[sendInput:${nodeId}] writing: ${msg.slice(0, 120)}`);
     sink.write(msg + '\n');
+    if (typeof sink.flush === 'function') sink.flush();
+  } else {
+    console.error(`[sendInput:${nodeId}] stdin not writable`);
   }
 }
 

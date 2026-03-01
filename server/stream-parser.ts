@@ -163,6 +163,8 @@ export function createStreamParser(nodeId: string, callbacks: StreamCallbacks = 
   function processEvent(event: StreamEvent): void {
     const lines: string[] = [];
 
+    console.log(`[parser:${nodeId}] event: ${event.type}`);
+
     // Reset idle timer on any event
     resetIdleTimer();
 
