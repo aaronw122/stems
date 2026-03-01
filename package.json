@@ -19,6 +19,7 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.63",
     "@tailwindcss/vite": "^4.2.1",
     "@types/dagre": "^0.7.54",
     "@vitejs/plugin-react": "^5.1.4",
