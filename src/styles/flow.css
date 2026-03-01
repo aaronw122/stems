@@ -21,7 +21,7 @@ body {
   font-size: 12px;
 }
 
-/* ── Terminal (Mac OS X style chrome) ── */
+/* ── Terminal Window Chrome (Mac OS X style) ── */
 
 .terminal-titlebar {
   background: linear-gradient(180deg, #e8e8e8 0%, #d0d0d0 50%, #c8c8c8 100%);
@@ -58,7 +58,7 @@ body {
 
 .terminal-cursor::after {
   content: '\2588';
-  color: var(--term-text-dim);
+  color: var(--term-text);
   animation: blink-cursor 1s step-end infinite;
 }
 
@@ -79,12 +79,12 @@ body {
 
 /* Subtle visual indicator on hover for edges */
 .terminal-resize-edge:hover {
-  background: var(--term-input-bg);
+  background: color-mix(in srgb, var(--term-border) 20%, transparent);
 }
 
 /* Subtle visual indicator on hover for corners */
 .terminal-resize-corner:hover {
-  background: var(--term-input-bg);
+  background: color-mix(in srgb, var(--term-border) 30%, transparent);
   border-radius: 2px;
 }
 
@@ -98,7 +98,7 @@ body {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--term-input-bg);
+  background: color-mix(in srgb, var(--term-border) 30%, transparent);
   transition: background 150ms ease;
 }
 
@@ -111,5 +111,49 @@ body {
 .terminal-resize-handle--sw:hover::after,
 .terminal-resize-handle--ne:hover::after,
 .terminal-resize-handle--nw:hover::after {
-  background: var(--term-border);
+  background: color-mix(in srgb, var(--term-border) 60%, transparent);
+}
+
+/* ── Terminal Message Types ── */
+
+.term-msg-user {
+  background: var(--term-user-bg);
+  border-left: 3px solid var(--term-user-border);
+  color: var(--term-user-text);
+  padding: 4px 8px;
+  margin: 2px 0;
+  border-radius: 2px;
+}
+
+.term-msg-tool {
+  color: var(--term-tool-name);
+  padding: 1px 0;
+}
+
+.term-msg-tool .tool-bullet {
+  color: var(--term-tool-success);
+}
+
+.term-msg-tool .tool-bullet--error {
+  color: var(--term-tool-error);
+}
+
+.term-msg-human-needed {
+  background: var(--term-human-needed-bg);
+  border-left: 3px solid var(--term-human-needed-border);
+  color: var(--term-human-needed-text);
+  padding: 4px 8px;
+  margin: 2px 0;
+  border-radius: 2px;
+}
+
+.term-msg-system {
+  color: var(--term-system-text);
+  font-style: italic;
+  padding: 1px 0;
+}
+
+.term-msg-error {
+  color: var(--term-error-text);
+  padding: 1px 0;
 }
