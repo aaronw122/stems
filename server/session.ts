@@ -1,54 +1,32 @@
-import type { Subprocess } from 'bun';
-import { updateNode, getNode, broadcast, broadcastTerminal } from './state.ts';
-import { createStreamParser } from './stream-parser.ts';
-import { CLAUDE_BIN } from './cli-paths.ts';
+import { query, AbortError } from '@anthropic-ai/claude-agent-sdk';
+import type { Query, Options } from '@anthropic-ai/claude-agent-sdk';
+import { updateNode, getNode, broadcast } from './state.ts';
+import { createMessageProcessor } from './message-processor.ts';
+import { autoMoveIfComplete } from './completion.ts';
 
-// ── Session tracking ─────────────────────────────────────────────────
+// ── Session tracking ────────────────────────────────────────────────
+// Each session persists across multiple turns. Between turns, no query
+// is active — the session just holds the SDK session_id for resumption.
 
 interface Session {
-  process: Subprocess;
   nodeId: string;
-  interactive: boolean;
+  sessionId: string | null;  // captured from SDK init message, used for resume
+  repoPath: string;
+  baseOptions: Omit<Options, 'abortController' | 'resume'>;
+  processor: ReturnType<typeof createMessageProcessor>;
+  abortController: AbortController | null;  // non-null only during an active turn
 }
 
 const sessions = new Map<string, Session>();
 
-const PID_FILE = 'stems.pids';
-
 // ── Clean env — strip CLAUDECODE so child Claude processes don't refuse to start
+
 function getCleanEnv(): Record<string, string | undefined> {
   const { CLAUDECODE, CLAUDE_CODE_ENTRYPOINT, ...clean } = process.env;
   return clean;
 }
 
-// ── PID file management ──────────────────────────────────────────────
-
-async function writePidFile(): Promise<void> {
-  const pids: number[] = [];
-  for (const [, session] of sessions) {
-    if (session.process.pid != null) {
-      pids.push(session.process.pid);
-    }
-  }
-  await Bun.write(PID_FILE, pids.join('\n'));
-}
-
-async function readPidFile(): Promise<number[]> {
-  try {
-    const file = Bun.file(PID_FILE);
-    const exists = await file.exists();
-    if (!exists) return [];
-    const content = await file.text();
-    return content
-      .split('\n')
-      .map((s) => parseInt(s.trim(), 10))
-      .filter((n) => !Number.isNaN(n));
-  } catch {
-    return [];
-  }
-}
-
-// ── Spawn a Claude CLI session ───────────────────────────────────────
+// ── Spawn a session via SDK query() ─────────────────────────────────
 
 export async function spawnSession(
   nodeId: string,
@@ -56,57 +34,34 @@ export async function spawnSession(
   prompt: string,
   appendSystemPrompt?: string,
 ): Promise<void> {
-  const interactive = !prompt;
-
-  // Always use -p with --verbose for stream-json I/O and partial message streaming
-  const args = [
-    CLAUDE_BIN,
-    '-p',
-    '--verbose',
-    '--output-format', 'stream-json',
-    '--input-format', 'stream-json',
-    '--include-partial-messages',
-    '--dangerously-skip-permissions',
-  ];
+  // Build shared options (reused across turns)
+  const baseOptions: Omit<Options, 'abortController' | 'resume'> = {
+    cwd: repoPath,
+    permissionMode: 'bypassPermissions',
+    allowDangerouslySkipPermissions: true,
+    includePartialMessages: true,
+    env: getCleanEnv(),
+  };
 
   if (appendSystemPrompt) {
-    args.push('--append-system-prompt', appendSystemPrompt);
+    baseOptions.systemPrompt = {
+      type: 'preset',
+      preset: 'claude_code',
+      append: appendSystemPrompt,
+    };
   }
 
-  console.log(`[session:${nodeId}] spawning: ${args.join(' ')}`);
-  console.log(`[session:${nodeId}] cwd: ${repoPath}, interactive: ${interactive}, prompt: ${prompt ? prompt.slice(0, 80) + '...' : '(none)'}`);
+  const processor = createMessageProcessor(nodeId);
 
-  const proc = Bun.spawn(args, {
-    cwd: repoPath,
-    stdout: 'pipe',
-    stdin: 'pipe',
-    stderr: 'pipe',
-    env: getCleanEnv(),
-  });
-
-  console.log(`[session:${nodeId}] spawned pid: ${proc.pid}`);
-
-  sessions.set(nodeId, { process: proc, nodeId, interactive });
-
-  // Send the prompt as a stream-json user_message on stdin
-  if (prompt) {
-    const stdinStream = proc.stdin;
-    if (stdinStream && typeof stdinStream === 'object' && 'write' in stdinStream) {
-      const sink = stdinStream as { write(data: Uint8Array | string): number; flush?(): void };
-      const msg = JSON.stringify({ type: 'user_message', content: prompt });
-      console.log(`[session:${nodeId}] writing to stdin: ${msg.slice(0, 120)}...`);
-      sink.write(msg + '\n');
-      if (typeof sink.flush === 'function') {
-        sink.flush();
-        console.log(`[session:${nodeId}] stdin flushed`);
-      }
-    } else {
-      console.error(`[session:${nodeId}] stdin not writable!`, typeof stdinStream);
-    }
-  }
-
-  // Update PID file
-  await writePidFile();
+  const session: Session = {
+    nodeId,
+    sessionId: null,
+    repoPath,
+    baseOptions,
+    processor,
+    abortController: null,
+  };
+  sessions.set(nodeId, session);
 
   // Update node state to running
   const updated = updateNode(nodeId, { nodeState: 'running' });
@@ -114,98 +69,114 @@ export async function spawnSession(
     broadcast({ type: 'node_updated', node: updated });
   }
 
-  // Create stream parser and pipe stdout
-  const parser = createStreamParser(nodeId);
+  console.log(`[session:${nodeId}] spawning SDK query, cwd: ${repoPath}, prompt: ${prompt.slice(0, 80)}...`);
 
-  if (proc.stdout) {
-    parser.pipeFrom(proc.stdout).catch((err) => {
-      console.error(`[session:${nodeId}] stdout pipe error:`, err);
-    });
+  // Run the first turn
+  runTurn(session, prompt);
+}
+
+// ── Run a single turn (prompt → response) ───────────────────────────
+
+function runTurn(session: Session, prompt: string): void {
+  const { nodeId } = session;
+  const abortController = new AbortController();
+  session.abortController = abortController;
+
+  // Build turn-specific options
+  const options: Options = {
+    ...session.baseOptions,
+    abortController,
+  };
+
+  // Resume the session for follow-up turns
+  if (session.sessionId) {
+    options.resume = session.sessionId;
+    // System prompt only needed on first turn
+    delete options.systemPrompt;
   }
 
-  // Drain stderr and broadcast errors to terminal
-  if (proc.stderr) {
-    drainStderr(nodeId, proc.stderr);
-  }
+  console.log(`[session:${nodeId}] running turn, resume=${session.sessionId ?? 'none'}, prompt: ${prompt.slice(0, 80)}...`);
 
-  // Handle process exit
-  proc.exited.then(async (code) => {
-    console.log(`[session:${nodeId}] process exited with code ${code}`);
-    sessions.delete(nodeId);
-    await writePidFile();
+  const queryInstance = query({ prompt, options });
 
-    if (code !== 0) {
-      // Guard: don't overwrite 'completed' with 'crashed' if the result event
-      // already transitioned the node (race between stream result and exit code)
+  // Consume the query stream in the background
+  consumeTurn(session, queryInstance).catch((err) => {
+    console.error(`[session:${nodeId}] consumeTurn rejected unexpectedly:`, err);
+  });
+}
+
+// ── Consume a single turn's query stream ────────────────────────────
+
+async function consumeTurn(session: Session, queryInstance: Query): Promise<void> {
+  const { nodeId, processor } = session;
+
+  try {
+    for await (const msg of queryInstance) {
+      processor.processMessage(msg);
+
+      // Capture session_id from init message for future resume calls
+      if (msg.type === 'system' && 'subtype' in msg && msg.subtype === 'init') {
+        session.sessionId = msg.session_id;
+      }
+    }
+  } catch (err: unknown) {
+    const isAbort = err instanceof AbortError;
+
+    if (!isAbort) {
+      console.error(`[session:${nodeId}] query stream error:`, err);
+
       const node = getNode(nodeId);
       if (node && node.nodeState !== 'completed') {
+        const errorMessage = err instanceof Error ? err.message : String(err);
         const updated = updateNode(nodeId, {
           nodeState: 'crashed',
-          errorInfo: { type: 'process_exit', message: `Process exited with code ${code}` },
+          errorInfo: { type: 'query_error', message: errorMessage },
         });
         if (updated) {
           broadcast({ type: 'node_updated', node: updated });
         }
       }
     }
-  });
-}
 
-// ── Drain stderr to terminal ────────────────────────────────────────
-
-async function drainStderr(nodeId: string, stream: ReadableStream<Uint8Array>): Promise<void> {
-  try {
-    const reader = stream.getReader();
-    const decoder = new TextDecoder();
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      const text = decoder.decode(value, { stream: true }).trim();
-      if (text) {
-        console.error(`[session:${nodeId}] stderr: ${text}`);
-        broadcastTerminal(nodeId, [`[stderr] ${text}`]);
-      }
-    }
-  } catch {
-    // Stream closed
-  }
-}
-
-// ── Kill a session ───────────────────────────────────────────────────
-
-export function hasSession(nodeId: string): boolean {
-  return sessions.has(nodeId);
-}
-
-export async function killSession(nodeId: string): Promise<void> {
-  const session = sessions.get(nodeId);
-  if (!session) return;
-
-  try {
-    session.process.kill();
-  } catch {
-    // Process may have already exited
-  }
-
-  sessions.delete(nodeId);
-  await writePidFile();
-}
-
-// ── Kill all sessions ────────────────────────────────────────────────
-
-export async function killAllSessions(): Promise<void> {
-  for (const [nodeId, session] of sessions) {
-    try {
-      session.process.kill();
-    } catch {
-      // Ignore
-    }
+    // On error/abort, clean up the session entirely
+    session.abortController = null;
+    processor.cleanup();
     sessions.delete(nodeId);
+    return;
   }
-  await writePidFile();
+
+  // Turn completed successfully — decide next state based on node type
+  session.abortController = null;
+
+  const node = getNode(nodeId);
+  if (!node) return;
+
+  if (node.type === 'subtask') {
+    // Subtasks are autonomous — complete after their query finishes
+    const updated = updateNode(nodeId, {
+      nodeState: 'completed',
+      needsHuman: false,
+      humanNeededType: null,
+      humanNeededPayload: null,
+    });
+    if (updated) {
+      broadcast({ type: 'node_updated', node: updated });
+      autoMoveIfComplete(nodeId);
+    }
+    processor.cleanup();
+    sessions.delete(nodeId);
+    console.log(`[session:${nodeId}] subtask completed, session removed`);
+  } else {
+    // Features are interactive — stay running for more user input
+    const updated = updateNode(nodeId, { nodeState: 'running' });
+    if (updated) {
+      broadcast({ type: 'node_updated', node: updated });
+    }
+    console.log(`[session:${nodeId}] turn completed, session alive for more input`);
+  }
 }
 
-// ── Send input to a session ──────────────────────────────────────────
+// ── Send input to a session ─────────────────────────────────────────
 
 export function sendInput(nodeId: string, text: string): void {
   const session = sessions.get(nodeId);
@@ -214,31 +185,63 @@ export function sendInput(nodeId: string, text: string): void {
     return;
   }
 
-  const stdinStream = session.process.stdin;
-  if (stdinStream && typeof stdinStream === 'object' && 'write' in stdinStream) {
-    const sink = stdinStream as { write(data: Uint8Array | string): number; flush?(): void };
-    // All sessions now use --input-format stream-json
-    const msg = JSON.stringify({ type: 'user_message', content: text });
-    console.log(`[sendInput:${nodeId}] writing: ${msg.slice(0, 120)}`);
-    sink.write(msg + '\n');
-    if (typeof sink.flush === 'function') sink.flush();
-  } else {
-    console.error(`[sendInput:${nodeId}] stdin not writable`);
+  if (session.abortController) {
+    // A turn is already running — this shouldn't happen in normal flow
+    // (user shouldn't be able to send input while Claude is responding)
+    console.warn(`[sendInput:${nodeId}] turn already in progress — input dropped`);
+    return;
   }
+
+  console.log(`[sendInput:${nodeId}] starting new turn: ${text.slice(0, 120)}`);
+
+  // Update node state to running (may have been idle between turns)
+  const updated = updateNode(nodeId, { nodeState: 'running' });
+  if (updated) {
+    broadcast({ type: 'node_updated', node: updated });
+  }
+
+  runTurn(session, text);
 }
 
-// ── Cleanup stale processes from previous runs ───────────────────────
+// ── Query session state ─────────────────────────────────────────────
 
-export async function cleanupStaleProcesses(): Promise<void> {
-  const pids = await readPidFile();
-  for (const pid of pids) {
+export function hasSession(nodeId: string): boolean {
+  return sessions.has(nodeId);
+}
+
+// ── Kill a session ──────────────────────────────────────────────────
+
+export async function killSession(nodeId: string): Promise<void> {
+  const session = sessions.get(nodeId);
+  if (!session) return;
+
+  console.log(`[session:${nodeId}] killing session`);
+
+  if (session.abortController) {
     try {
-      process.kill(pid, 'SIGTERM');
-      console.log(`[cleanup] Killed stale process ${pid}`);
+      session.abortController.abort();
     } catch {
-      // Process already dead — ignore
+      // Abort may throw if already aborted
     }
   }
-  // Clear the PID file
-  await Bun.write(PID_FILE, '');
+
+  session.processor.cleanup();
+  sessions.delete(nodeId);
+}
+
+// ── Kill all sessions ───────────────────────────────────────────────
+
+export async function killAllSessions(): Promise<void> {
+  for (const [nodeId, session] of sessions) {
+    console.log(`[session:${nodeId}] killing session (shutdown)`);
+    if (session.abortController) {
+      try {
+        session.abortController.abort();
+      } catch {
+        // Ignore
+      }
+    }
+    session.processor.cleanup();
+  }
+  sessions.clear();
 }

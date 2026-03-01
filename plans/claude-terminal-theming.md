@@ -1,3 +1,7 @@
+---
+revision: 3
+---
+
 # Plan: Claude Code Terminal Theming
 
 ## Context
@@ -71,13 +75,19 @@ Standard ANSI 16-color palette (for compatibility — lower priority).
 
 ### Step 1: Structured Terminal Messages
 
-**Why:** The stream parser currently outputs plain `string[]`. To style different message types differently, we need typed message objects.
+> **Coordination: Agent SDK migration dependency.** The SDK migration plan (`plans/agent-sdk-migration.md`) deletes `server/stream-parser.ts` and replaces it with `server/message-processor.ts`, which processes typed SDK `MessageEvent`s instead of CLI stream-json events. **The SDK migration must land first.** All server-side extraction logic in this step should be implemented in `message-processor.ts`, and the event mappings below are written against the SDK's `MessageEvent` types (e.g., `content_block_start`, `content_block_delta`, tool_use embedded in `assistant.content[]`), not CLI stream-json event types.
+
+**Why:** The message processor currently outputs plain `string[]`. To style different message types differently, we need typed message objects.
 
 **Files to modify:**
 - `shared/types.ts` — Add `TerminalMessage` type, update `terminal_data` message
-- `server/stream-parser.ts` — Emit `TerminalMessage[]` instead of `string[]`
-- `server/state.ts` — Update buffer type from `string[]` to `TerminalMessage[]`
+- `server/message-processor.ts` — Emit `TerminalMessage[]` instead of `string[]`
+- `server/state.ts` — Update buffer type from `string[]` to `TerminalMessage[]`. Functions requiring signature changes:
+  - `broadcastTerminal(nodeId, messages: TerminalMessage[])` (was `lines: string[]`)
+  - `appendTerminalLines()` → rename to `appendTerminalMessages()` (accepts `TerminalMessage[]`)
+  - `getTerminalLines()` → rename to `getTerminalMessages()` (returns `TerminalMessage[]`)
 - `server/index.ts` — Echo user input as `user_message` type to terminal
+- `server/context-summary.ts` — Serialize `TerminalMessage[]` back to plain text (e.g., `messages.map(m => m.text).join('\n')`) before passing to the summarization prompt
 
 **New type:**
 ```typescript
@@ -86,7 +96,7 @@ export type TerminalMessageType =
   | 'user_message'      // Echoed user input
   | 'tool_use'          // Tool invocation: "● Read file.ts"
   | 'tool_result'       // Tool output/result
-  | 'thinking'          // "✻ Cogitated for Xs"
+  | 'human_needed'      // Human attention needed (e.g., AskUserQuestion)
   | 'system'            // Session lifecycle (completed, cost)
   | 'error';            // Errors
 
@@ -95,25 +105,38 @@ export interface TerminalMessage {
   text: string;
   toolName?: string;
   isSuccess?: boolean;
-  durationSec?: number;
   costUsd?: number;
 }
 ```
+
+> **Deferred: thinking indicators.** Thinking indicators are deferred until the Agent SDK's thinking/extended-thinking block behavior is confirmed. If the SDK emits `thinking` content blocks, a `thinking` message type can be added in a follow-up.
 
 **Protocol change:**
 ```typescript
 // Before
 { type: 'terminal_data'; nodeId: string; lines: string[] }
+{ type: 'terminal_replay'; nodeId: string; lines: string[] }
 // After
 { type: 'terminal_data'; nodeId: string; messages: TerminalMessage[] }
+{ type: 'terminal_replay'; nodeId: string; messages: TerminalMessage[] }
 ```
 
-**Stream parser changes (per event type):**
-- `assistant` / `content_block_delta` → `{ type: 'assistant_text', text }`
-- `tool_use` → `{ type: 'tool_use', text: name, toolName: name }`
-- `tool_result` → `{ type: 'tool_result', text: truncated, toolName: name }`
-- `result` → `{ type: 'system', text: 'Completed', costUsd }`
-- `error` → `{ type: 'error', text: errorMsg }`
+**Files affected by `terminal_replay` change:**
+- `shared/types.ts` — update `terminal_replay` message type (`lines` → `messages: TerminalMessage[]`)
+- `server/index.ts` — replay handler must send `messages` instead of `lines`
+- `src/hooks/useWebSocket.ts` — replay message handler must use `msg.messages` instead of `msg.lines`
+
+> **Atomic changeset:** `terminal_data` and `terminal_replay` protocol changes must land together with the client-side handlers (useWebSocket, useTerminal) in a single branch/PR to avoid breaking the client.
+
+**Message processor mappings (SDK `MessageEvent` types):**
+- `stream_event` (`content_block_delta`, type `text_delta`) → `{ type: 'assistant_text', text: delta.text }`
+- `assistant` (`message.content[]` with `type: 'tool_use'`) → `{ type: 'tool_use', text: name, toolName: name }`
+- `assistant` (`message.content[]` with `type: 'tool_use'`, `AskUserQuestion`) → `{ type: 'human_needed', text: questionText }`
+- `assistant` (`message.content[]` with `type: 'tool_result'`) → `{ type: 'tool_result', text: truncated, toolName: name }`
+- `result` (success) → `{ type: 'system', text: 'Completed', costUsd: total_cost_usd }`
+- `result` (error) → `{ type: 'error', text: errorMsg }`
+
+> **Precedence rule:** When processing `assistant.content[]` tool_use blocks, check `name` first. If `name === 'AskUserQuestion'`, emit ONLY `{ type: 'human_needed', text: questionText }` — do NOT also emit a generic `tool_use` message. All other tool_use names emit `{ type: 'tool_use', ... }` as normal.
 
 **User message echo:** In `server/index.ts`, when handling `send_input`, also broadcast `{ type: 'user_message', text }` to the terminal.
 
@@ -137,15 +160,50 @@ export interface TerminalMessage {
 - `--term-btn-bg`, `--term-btn-text`
 - `--term-border`, `--term-shadow`
 
+**CSS Variable → Source Token → Fallback mapping:**
+
+Not all themes define every token (Dark has 13, Light has 9, Daltonized variants fewer). Every CSS variable must resolve in every theme. The table below defines the source token and fallback chain for missing tokens.
+
+| CSS Variable | Source Token | Fallback (if token missing) |
+|---|---|---|
+| `--term-bg` | *(hardcoded)* | Dark: `rgb(14,14,14)`, Light: `rgb(245,245,245)` |
+| `--term-text` | `text` | — (present in all themes) |
+| `--term-text-dim` | `secondaryText` | — (present in all themes) |
+| `--term-user-bg` | `claude` + 15% opacity | — (`claude` present in all themes) |
+| `--term-user-text` | `text` | — |
+| `--term-user-border` | `claude` | — |
+| `--term-tool-success` | `success` | — (present in all themes) |
+| `--term-tool-error` | `error` | — (present in all themes) |
+| `--term-tool-name` | `secondaryText` | — |
+| `--term-thinking-indicator` | `planMode` | Falls back to `claude` (missing in Light, all Daltonized) |
+| `--term-thinking-text` | `secondaryText` | — |
+| `--term-system-text` | `secondaryText` | — |
+| `--term-error-text` | `error` | — |
+| `--term-human-needed-bg` | `permission` + 15% opacity | Falls back to `suggestion` + 15%; then `claude` + 15% (missing in Light Daltonized) |
+| `--term-human-needed-text` | `permission` | Falls back to `suggestion`; then `claude` |
+| `--term-human-needed-border` | `permission` | Falls back to `suggestion`; then `claude` |
+| `--term-input-bg` | *(hardcoded)* | Dark: `rgba(255,255,255,0.05)`, Light: `rgba(0,0,0,0.05)` |
+| `--term-input-border` | `secondaryBorder` | Falls back to `secondaryText` (missing in Daltonized variants) |
+| `--term-input-text` | `text` | — |
+| `--term-btn-bg` | `claude` | — |
+| `--term-btn-text` | `text` | — |
+| `--term-border` | `secondaryBorder` | Falls back to `secondaryText` |
+| `--term-shadow` | *(hardcoded)* | Dark: `rgba(0,0,0,0.5)`, Light: `rgba(0,0,0,0.15)` |
+| `--term-bash-border` | `bashBorder` | Falls back to `secondaryBorder`; then `secondaryText` (missing in Light, all Daltonized) |
+
+Implement the fallback chain in `src/themes/themes.ts` at definition time — resolve each CSS variable to a concrete value per theme so the runtime never hits undefined.
+
 **Dark theme background:** Terminal-dependent. For dark themes, use a near-black background (`rgb(14,14,14)` or similar). For light themes, use a light gray (`rgb(245,245,245)`).
 
 **ThemeProvider behavior:**
 1. On mount, check `localStorage.getItem('stems-theme')`
-2. If null → render `<ThemePicker>` instead of children
-3. If set → apply CSS custom properties to `document.documentElement`, render children
-4. Expose `{ themeId, setTheme }` via React context
+2. If no saved theme → default to `'dark'` and apply its CSS custom properties immediately
+3. Apply CSS custom properties to `document.documentElement`, always render children
+4. Check `localStorage.getItem('stems-theme-chosen')` — if absent (first visit), render `<ThemePicker>` as a **dismissible modal overlay** on top of the app (not blocking children)
+5. When user picks a theme or dismisses the modal, set `stems-theme-chosen` flag in localStorage
+6. Expose `{ themeId, setTheme }` via React context
 
-**ThemePicker:** Simple modal with 6 cards — each shows theme name and a small color swatch preview. Clicking selects and saves. Reusable later as a settings panel.
+**ThemePicker:** Simple modal overlay with 6 cards — each shows theme name and a small color swatch preview. Clicking selects, saves, and dismisses. Has a close/dismiss button for users who want to keep the default. Reusable later as a settings panel.
 
 ### Step 3: Terminal Message Renderer
 
@@ -159,7 +217,7 @@ A switch-based component that renders each `TerminalMessage` with appropriate st
 | `assistant_text` | Regular terminal text color |
 | `tool_use` | Green `●` bullet + tool name in muted color |
 | `tool_result` | Indented result text, success/error colored bullet |
-| `thinking` | Pink `✻` + italic "Thinking..." / "Cogitated for Xs" |
+| `human_needed` | Highlighted block with `--term-human-needed-bg` background, `--term-human-needed-border` left border, `--term-human-needed-text` text color. Visually distinct to surface urgency. |
 | `system` | Dim gray text |
 | `error` | Red/error-colored text |
 
@@ -203,7 +261,7 @@ Change `appendLines(msg.nodeId, msg.lines)` to `appendMessages(msg.nodeId, msg.m
 
 **File:** `src/main.tsx`
 
-Wrap `<App>` with `<ThemeProvider>` so the first-boot picker gates the app.
+Wrap `<App>` with `<ThemeProvider>`. The app renders immediately with the dark theme as default; the first-boot picker appears as a dismissible overlay.
 
 ---
 
@@ -224,19 +282,20 @@ Note: Steps 1 and 4+5+6 must land together or the client breaks (server sends `m
 |------|---------|
 | `src/themes/types.ts` | Theme type definitions |
 | `src/themes/themes.ts` | 6 theme presets with Claude Code colors |
-| `src/themes/ThemeProvider.tsx` | Context + CSS var application + first-boot gate |
+| `src/themes/ThemeProvider.tsx` | Context + CSS var application + first-visit overlay |
 | `src/themes/ThemePicker.tsx` | Theme selection UI |
 | `src/components/panels/TerminalMessageRenderer.tsx` | Per-message-type renderer |
 
-**Modified files (7):**
+**Modified files (10):**
 | File | Change |
 |------|--------|
-| `shared/types.ts` | Add TerminalMessage type, update terminal_data |
-| `server/stream-parser.ts` | Emit TerminalMessage[] |
-| `server/state.ts` | Update buffer type |
-| `server/index.ts` | Echo user input to terminal |
+| `shared/types.ts` | Add TerminalMessage type, update terminal_data + terminal_replay |
+| `server/message-processor.ts` | Emit TerminalMessage[] |
+| `server/state.ts` | Update buffer type, rename functions (see Step 1) |
+| `server/index.ts` | Echo user input to terminal, update replay handler |
+| `server/context-summary.ts` | Serialize TerminalMessage[] to plain text for summarization |
 | `src/hooks/useTerminal.ts` | Buffer type string[] → TerminalMessage[] |
-| `src/hooks/useWebSocket.ts` | lines → messages handler |
+| `src/hooks/useWebSocket.ts` | lines → messages handler (terminal_data + terminal_replay) |
 | `src/components/panels/TerminalPeek.tsx` | New renderer, theme vars, remove amber |
 | `src/styles/flow.css` | CSS vars, message-type classes, remove retro amber |
 | `src/main.tsx` | Wrap with ThemeProvider |
