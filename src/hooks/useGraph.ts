@@ -76,6 +76,15 @@ function toFlowEdge(edge: WeftEdge): Edge {
   };
 }
 
+// ── Terminal window rect ─────────────────────────────────────────────
+
+export interface TerminalRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 // ── Zustand store ────────────────────────────────────────────────────
 
 interface GraphState {
@@ -83,8 +92,10 @@ interface GraphState {
   edges: Edge[];
   doneList: WeftNode[];
   selectedNodeId: string | null;
+  terminalRect: TerminalRect | null;
   processMessage: (msg: ServerMessage) => void;
   setSelectedNode: (id: string | null) => void;
+  setTerminalRect: (rect: TerminalRect) => void;
   onNodeDragStop: (id: string, x: number, y: number) => void;
   applyNodeChanges: (changes: NodeChange[]) => void;
   applyEdgeChanges: (changes: EdgeChange[]) => void;
@@ -96,6 +107,7 @@ export const useGraph = create<GraphState>((set, get) => ({
   edges: [],
   doneList: [],
   selectedNodeId: null,
+  terminalRect: null,
 
   processMessage(msg: ServerMessage) {
     switch (msg.type) {
@@ -158,6 +170,10 @@ export const useGraph = create<GraphState>((set, get) => ({
 
   setSelectedNode(id: string | null) {
     set({ selectedNodeId: id });
+  },
+
+  setTerminalRect(rect: TerminalRect) {
+    set({ terminalRect: rect });
   },
 
   onNodeDragStop(id: string, x: number, y: number) {
