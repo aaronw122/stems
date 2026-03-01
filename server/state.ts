@@ -38,6 +38,18 @@ export function clearTerminalBuffer(nodeId: string): void {
   terminalBuffers.delete(nodeId);
 }
 
+// ── Human-needed helpers ─────────────────────────────────────────────
+
+/** Clear human-needed flags without touching nodeState (callers manage state transitions) */
+export function clearHumanNeeded(nodeId: string): void {
+  const node = nodes.get(nodeId);
+  if (!node?.needsHuman) return;
+
+  const updated = { ...node, needsHuman: false, humanNeededType: null, humanNeededPayload: null } as WeftNode;
+  nodes.set(nodeId, updated);
+  broadcast({ type: 'node_updated', node: updated });
+}
+
 // ── CRUD ─────────────────────────────────────────────────────────────
 
 export function addNode(node: WeftNode): void {

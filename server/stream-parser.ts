@@ -1,5 +1,5 @@
 import { broadcastTerminal } from './state.ts';
-import { updateNode, getNode, broadcast } from './state.ts';
+import { updateNode, getNode, broadcast, clearHumanNeeded } from './state.ts';
 import { trackFileEdit } from './overlap-tracker.ts';
 import type { DisplayStage } from '../shared/types.ts';
 import { extractPRUrls, trackPR } from './pr-tracker.ts';
@@ -118,21 +118,6 @@ export function createStreamParser(nodeId: string, callbacks: StreamCallbacks = 
     }
   }
 
-  function clearHumanNeeded(): void {
-    const node = getNode(nodeId);
-    if (node?.needsHuman) {
-      const updated = updateNode(nodeId, {
-        needsHuman: false,
-        nodeState: 'running',
-        humanNeededType: null,
-        humanNeededPayload: null,
-      });
-      if (updated) {
-        broadcast({ type: 'node_updated', node: updated });
-      }
-    }
-  }
-
   // ── Idle timeout management ────────────────────────────────────────
 
   function resetIdleTimer(): void {
@@ -181,9 +166,10 @@ export function createStreamParser(nodeId: string, callbacks: StreamCallbacks = 
     // Reset idle timer on any event
     resetIdleTimer();
 
-    // Clear human-needed on activity (unless this is the event that sets it)
-    if (event.type !== 'error') {
-      clearHumanNeeded();
+    // Clear idle human-needed on stream activity (session is no longer idle)
+    const currentNode = getNode(nodeId);
+    if (currentNode?.humanNeededType === 'idle') {
+      clearHumanNeeded(nodeId);
     }
 
     switch (event.type) {
@@ -278,6 +264,9 @@ export function createStreamParser(nodeId: string, callbacks: StreamCallbacks = 
         if (node) {
           const updated = updateNode(nodeId, {
             nodeState: 'completed',
+            needsHuman: false,
+            humanNeededType: null,
+            humanNeededPayload: null,
             costUsd: node.costUsd + costUsd,
             tokenUsage: {
               input: node.tokenUsage.input + usage.input,
