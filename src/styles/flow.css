@@ -65,3 +65,55 @@ body {
   color: #ffb000;
   animation: blink-cursor 1s step-end infinite;
 }
+
+/* ── Floating Terminal Window ── */
+
+.terminal-floating-window {
+  box-shadow:
+    0 25px 50px -12px rgba(0, 0, 0, 0.6),
+    0 0 0 1px rgba(255, 176, 0, 0.08);
+}
+
+/* Resize handles — invisible but functional */
+.terminal-resize-edge,
+.terminal-resize-corner {
+  position: absolute;
+  z-index: 50;
+}
+
+/* Subtle visual indicator on hover for edges */
+.terminal-resize-edge:hover {
+  background: rgba(255, 176, 0, 0.1);
+}
+
+/* Subtle visual indicator on hover for corners */
+.terminal-resize-corner:hover {
+  background: rgba(255, 176, 0, 0.15);
+  border-radius: 2px;
+}
+
+/* Corner dots — subtle grab indicators visible at rest */
+.terminal-resize-handle--se::after,
+.terminal-resize-handle--sw::after,
+.terminal-resize-handle--ne::after,
+.terminal-resize-handle--nw::after {
+  content: '';
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(255, 176, 0, 0.15);
+  transition: background 150ms ease;
+}
+
+.terminal-resize-handle--se::after { bottom: 3px; right: 3px; }
+.terminal-resize-handle--sw::after { bottom: 3px; left: 3px; }
+.terminal-resize-handle--ne::after { top: 3px; right: 3px; }
+.terminal-resize-handle--nw::after { top: 3px; left: 3px; }
+
+.terminal-resize-handle--se:hover::after,
+.terminal-resize-handle--sw:hover::after,
+.terminal-resize-handle--ne:hover::after,
+.terminal-resize-handle--nw:hover::after {
+  background: rgba(255, 176, 0, 0.4);
+}
