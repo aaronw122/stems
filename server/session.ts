@@ -58,21 +58,19 @@ export async function spawnSession(
 ): Promise<void> {
   const interactive = !prompt;
 
-  // Always use -p with --verbose for stream-json output
-  const args = [CLAUDE_BIN, '-p', '--verbose', '--output-format', 'stream-json', '--dangerously-skip-permissions'];
-
-  // Interactive sessions use bidirectional stream-json
-  if (interactive) {
-    args.push('--input-format', 'stream-json');
-  }
+  // Always use -p with --verbose for stream-json I/O and partial message streaming
+  const args = [
+    CLAUDE_BIN,
+    '-p',
+    '--verbose',
+    '--output-format', 'stream-json',
+    '--input-format', 'stream-json',
+    '--include-partial-messages',
+    '--dangerously-skip-permissions',
+  ];
 
   if (appendSystemPrompt) {
     args.push('--append-system-prompt', appendSystemPrompt);
-  }
-
-  // One-shot mode: pass prompt as final positional arg
-  if (!interactive) {
-    args.push(prompt);
   }
 
   const proc = Bun.spawn(args, {
@@ -84,6 +82,16 @@ export async function spawnSession(
   });
 
   sessions.set(nodeId, { process: proc, nodeId, interactive });
+
+  // One-shot mode: send the prompt as a stream-json user_message on stdin
+  if (!interactive && prompt) {
+    const stdinStream = proc.stdin;
+    if (stdinStream && typeof stdinStream === 'object' && 'write' in stdinStream) {
+      const sink = stdinStream as { write(data: Uint8Array | string): number };
+      const msg = JSON.stringify({ type: 'user_message', content: prompt });
+      sink.write(msg + '\n');
+    }
+  }
 
   // Update PID file
   await writePidFile();
@@ -184,14 +192,9 @@ export function sendInput(nodeId: string, text: string): void {
   const stdinStream = session.process.stdin;
   if (stdinStream && typeof stdinStream === 'object' && 'write' in stdinStream) {
     const sink = stdinStream as { write(data: Uint8Array | string): number };
-
-    if (session.interactive) {
-      // Interactive sessions use stream-json input format
-      const msg = JSON.stringify({ type: 'user_message', content: text });
-      sink.write(msg + '\n');
-    } else {
-      sink.write(text + '\n');
-    }
+    // All sessions now use --input-format stream-json
+    const msg = JSON.stringify({ type: 'user_message', content: text });
+    sink.write(msg + '\n');
   }
 }
 
