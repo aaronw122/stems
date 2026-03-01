@@ -266,7 +266,8 @@ export function createMessageProcessor(nodeId: string) {
       }
     }
 
-    lines.push(`[Turn done] Cost: $${msg.total_cost_usd.toFixed(4)}`);
+    // Cost is tracked on the node but not shown in terminal —
+    // the SDK reports estimated API cost, but we use Claude Code subscription
     return lines;
   }
 
