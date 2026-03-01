@@ -19,6 +19,9 @@ import {
   clearTerminalBuffer,
   clearHumanNeeded,
   getTerminalMessages,
+  getDescendants,
+  clearTerminalSubscriptions,
+  removeFromDoneList,
 } from './state.ts';
 import { spawnSession, hasSession, killSession, killAllSessions, sendInput } from './session.ts';
 import { getAllActiveFiles, clearNode as clearOverlapNode } from './overlap-tracker.ts';
@@ -225,6 +228,28 @@ async function handleMessage(ws: ServerWebSocket<unknown>, raw: string): Promise
       if (removed) {
         addToDoneList(removed);
         broadcast({ type: 'node_removed', nodeId: msg.nodeId });
+        broadcast({ type: 'done_list_updated', doneList: getDoneList() });
+      }
+      break;
+    }
+
+    case 'delete_tree': {
+      const descendantIds = getDescendants(msg.nodeId);
+      const allIds = [...descendantIds, msg.nodeId]; // children first, root last
+
+      let donePruned = false;
+      for (const id of allIds) {
+        await killSession(id);
+        clearOverlapNode(id);
+        stopPRTracking(id);
+        clearTerminalBuffer(id);
+        clearTerminalSubscriptions(id);
+        if (removeFromDoneList(id)) donePruned = true;
+        removeNode(id);
+      }
+
+      broadcast({ type: 'tree_removed', nodeIds: allIds });
+      if (donePruned) {
         broadcast({ type: 'done_list_updated', doneList: getDoneList() });
       }
       break;

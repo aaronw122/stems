@@ -178,6 +178,35 @@ export function broadcast(msg: ServerMessage): void {
   }
 }
 
+// ── Tree traversal helpers ────────────────────────────────────────────
+
+export function getDescendants(nodeId: string): string[] {
+  const snapshot = [...edges]; // snapshot — removeNode mutates edges in place
+  const descendants: string[] = [];
+  const queue = [nodeId];
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    for (const edge of snapshot) {
+      if (edge.source === current) {
+        descendants.push(edge.target);
+        queue.push(edge.target);
+      }
+    }
+  }
+  return descendants;
+}
+
+export function clearTerminalSubscriptions(nodeId: string): void {
+  terminalSubscriptions.delete(nodeId);
+}
+
+export function removeFromDoneList(nodeId: string): boolean {
+  const idx = doneList.findIndex((n) => n.id === nodeId);
+  if (idx === -1) return false;
+  doneList.splice(idx, 1);
+  return true;
+}
+
 export function broadcastTerminal(nodeId: string, messages: TerminalMessage[]): void {
   // Store messages server-side for context summarization
   appendTerminalMessages(nodeId, messages);
