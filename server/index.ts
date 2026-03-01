@@ -15,9 +15,10 @@ import {
   subscribeTerminal,
   unsubscribeTerminal,
   broadcast,
+  broadcastTerminal,
   clearTerminalBuffer,
   clearHumanNeeded,
-  getTerminalLines,
+  getTerminalMessages,
 } from './state.ts';
 import { spawnSession, hasSession, killSession, killAllSessions, sendInput } from './session.ts';
 import { getAllActiveFiles, clearNode as clearOverlapNode } from './overlap-tracker.ts';
@@ -189,13 +190,13 @@ async function handleMessage(ws: ServerWebSocket<unknown>, raw: string): Promise
 
     case 'subscribe_terminal': {
       subscribeTerminal(msg.nodeId, ws);
-      // Replay buffered terminal lines to the subscribing client only
-      const bufferedLines = getTerminalLines(msg.nodeId);
-      if (bufferedLines.length > 0) {
+      // Replay buffered terminal messages to the subscribing client only
+      const bufferedMessages = getTerminalMessages(msg.nodeId);
+      if (bufferedMessages.length > 0) {
         ws.send(JSON.stringify({
           type: 'terminal_replay',
           nodeId: msg.nodeId,
-          lines: bufferedLines,
+          messages: bufferedMessages,
         }));
       }
       break;
@@ -280,12 +281,15 @@ async function handleMessage(ws: ServerWebSocket<unknown>, raw: string): Promise
 
       switch (payload.kind) {
         case 'question_answer':
+          broadcastTerminal(nodeId, [{ type: 'user_message', text: payload.answer }]);
           sendInput(nodeId, payload.answer);
           break;
         case 'permission':
+          broadcastTerminal(nodeId, [{ type: 'user_message', text: payload.granted ? 'yes' : 'no' }]);
           sendInput(nodeId, payload.granted ? 'yes' : 'no');
           break;
         case 'text_input':
+          broadcastTerminal(nodeId, [{ type: 'user_message', text: payload.text }]);
           sendInput(nodeId, payload.text);
           break;
       }

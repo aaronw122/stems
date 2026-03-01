@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import AnsiToHtml from 'ansi-to-html';
 import { useTerminal } from '../../hooks/useTerminal.ts';
 import { useFloatingWindow } from '../../hooks/useFloatingWindow.ts';
+import type { TerminalMessage } from '../../../shared/types.ts';
 
 interface TerminalPeekProps {
   nodeId: string;
@@ -11,7 +12,7 @@ interface TerminalPeekProps {
   onSendInput: (text: string) => void;
 }
 
-const EMPTY_LINES: string[] = [];
+const EMPTY_MESSAGES: TerminalMessage[] = [];
 
 type ResizeEdge = 'n' | 's' | 'e' | 'w' | 'nw' | 'ne' | 'sw' | 'se';
 
@@ -32,7 +33,7 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
-  const prevLineCountRef = useRef(0);
+  const prevMessageCountRef = useRef(0);
 
   const converter = useMemo(
     () => new AnsiToHtml({ fg: '#ffb000', bg: '#1a1a1a', newline: false }),
@@ -51,7 +52,7 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
     RESIZE_HANDLE_SIZE,
   } = useFloatingWindow(containerRef);
 
-  const lines = useTerminal((s) => s.buffers.get(nodeId) ?? EMPTY_LINES);
+  const messages = useTerminal((s) => s.buffers.get(nodeId) ?? EMPTY_MESSAGES);
 
   // Focus input on mount
   useEffect(() => {
@@ -60,15 +61,15 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
     });
   }, []);
 
-  // Auto-scroll to bottom on new lines
+  // Auto-scroll to bottom on new messages
   useEffect(() => {
-    if (lines.length !== prevLineCountRef.current) {
-      prevLineCountRef.current = lines.length;
+    if (messages.length !== prevMessageCountRef.current) {
+      prevMessageCountRef.current = messages.length;
       if (autoScroll && scrollRef.current) {
         scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
       }
     }
-  }, [lines, autoScroll]);
+  }, [messages, autoScroll]);
 
   // Detect scroll position to toggle auto-scroll
   const handleScroll = useCallback(() => {
@@ -216,13 +217,13 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
         className="nowheel flex-1 overflow-y-auto px-4 py-3"
       >
         <pre className="terminal-glow whitespace-pre-wrap break-words font-mono text-xs leading-5 text-[#ffb000]">
-          {lines.map((line, i) => (
+          {messages.map((msg, i) => (
             <div
               key={i}
-              dangerouslySetInnerHTML={{ __html: converter.toHtml(line) }}
+              dangerouslySetInnerHTML={{ __html: converter.toHtml(msg.text) }}
             />
           ))}
-          {lines.length === 0 && (
+          {messages.length === 0 && (
             <span className="text-[#7a5800]">
               Waiting for output...<span className="terminal-cursor" />
             </span>
