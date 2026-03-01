@@ -1,5 +1,5 @@
 import type { ServerWebSocket } from 'bun';
-import type { WeftNode, WeftEdge, ServerMessage } from '../shared/types.ts';
+import type { WeftNode, WeftEdge, ServerMessage, TerminalMessage } from '../shared/types.ts';
 
 // ── In-memory state ──────────────────────────────────────────────────
 
@@ -14,19 +14,19 @@ const terminalSubscriptions = new Map<string, Set<ServerWebSocket<unknown>>>();
 
 // ── Server-side terminal buffers (for context summarization) ────────
 
-const MAX_SERVER_LINES = 200;
-const terminalBuffers = new Map<string, string[]>();
+const MAX_SERVER_MESSAGES = 200;
+const terminalBuffers = new Map<string, TerminalMessage[]>();
 
-export function appendTerminalLines(nodeId: string, lines: string[]): void {
+export function appendTerminalMessages(nodeId: string, messages: TerminalMessage[]): void {
   const existing = terminalBuffers.get(nodeId) ?? [];
-  const combined = [...existing, ...lines];
-  const trimmed = combined.length > MAX_SERVER_LINES
-    ? combined.slice(combined.length - MAX_SERVER_LINES)
+  const combined = [...existing, ...messages];
+  const trimmed = combined.length > MAX_SERVER_MESSAGES
+    ? combined.slice(combined.length - MAX_SERVER_MESSAGES)
     : combined;
   terminalBuffers.set(nodeId, trimmed);
 }
 
-export function getTerminalLines(nodeId: string, lastN?: number): string[] {
+export function getTerminalMessages(nodeId: string, lastN?: number): TerminalMessage[] {
   const buf = terminalBuffers.get(nodeId) ?? [];
   if (lastN && lastN < buf.length) {
     return buf.slice(buf.length - lastN);
@@ -157,9 +157,9 @@ export function broadcast(msg: ServerMessage): void {
   }
 }
 
-export function broadcastTerminal(nodeId: string, lines: string[]): void {
-  // Store lines server-side for context summarization
-  appendTerminalLines(nodeId, lines);
+export function broadcastTerminal(nodeId: string, messages: TerminalMessage[]): void {
+  // Store messages server-side for context summarization
+  appendTerminalMessages(nodeId, messages);
 
   const subs = terminalSubscriptions.get(nodeId);
   if (!subs || subs.size === 0) return;
@@ -167,7 +167,7 @@ export function broadcastTerminal(nodeId: string, lines: string[]): void {
   const data = JSON.stringify({
     type: 'terminal_data',
     nodeId,
-    lines,
+    messages,
   } satisfies ServerMessage);
 
   for (const ws of subs) {

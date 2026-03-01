@@ -1,3 +1,22 @@
+// ── Terminal message types ────────────────────────────────────────────
+
+export type TerminalMessageType =
+  | 'assistant_text'
+  | 'user_message'
+  | 'tool_use'
+  | 'tool_result'
+  | 'human_needed'
+  | 'system'
+  | 'error';
+
+export interface TerminalMessage {
+  type: TerminalMessageType;
+  text: string;
+  toolName?: string;
+  isSuccess?: boolean;
+  costUsd?: number;
+}
+
 // ── Node enums / union types ──────────────────────────────────────────
 
 export type NodeState = 'idle' | 'running' | 'needs-human' | 'completed' | 'crashed';
@@ -76,7 +95,7 @@ export type ServerMessage =
   | { type: 'node_added'; node: WeftNode; edge: WeftEdge | null }
   | { type: 'node_updated'; node: WeftNode }
   | { type: 'node_removed'; nodeId: string }
-  | { type: 'terminal_data'; nodeId: string; lines: string[] }
-  | { type: 'terminal_replay'; nodeId: string; lines: string[] }
+  | { type: 'terminal_data'; nodeId: string; messages: TerminalMessage[] }
+  | { type: 'terminal_replay'; nodeId: string; messages: TerminalMessage[] }
   | { type: 'done_list_updated'; doneList: WeftNode[] }
   | { type: 'error'; message: string };
