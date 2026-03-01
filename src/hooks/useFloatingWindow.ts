@@ -1,4 +1,4 @@
-import { useCallback, useRef, useEffect } from 'react';
+import { useCallback, useRef, useEffect, useLayoutEffect } from 'react';
 import { useGraph } from './useGraph.ts';
 import type { TerminalRect } from './useGraph.ts';
 
@@ -33,6 +33,11 @@ interface ResizeState {
 }
 
 type GestureState = DragState | ResizeState | null;
+
+interface CapturedPointer {
+  element: HTMLElement;
+  pointerId: number;
+}
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
@@ -115,22 +120,42 @@ function computeResizedRect(
 export function useFloatingWindow(containerRef: React.RefObject<HTMLElement | null>) {
   const gestureRef = useRef<GestureState>(null);
   const rectBeforeGesture = useRef<TerminalRect | null>(null);
+  const capturedPointerRef = useRef<CapturedPointer | null>(null);
 
   const terminalRect = useGraph((s) => s.terminalRect);
   const setTerminalRect = useGraph((s) => s.setTerminalRect);
 
-  // Initialize rect on first open (when terminalRect is null)
+  // Compute the rect to use for rendering (pure, no side effects)
   const getRect = useCallback((): TerminalRect => {
     if (terminalRect) return terminalRect;
     const container = containerRef.current;
     if (!container) return { x: 100, y: 100, width: DEFAULT_WIDTH, height: DEFAULT_HEIGHT };
-    const rect = centerRect(container);
-    setTerminalRect(rect);
-    return rect;
+    return centerRect(container);
+  }, [terminalRect, containerRef]);
+
+  // Initialize rect in the store after render when terminalRect is null
+  useLayoutEffect(() => {
+    if (terminalRect) return;
+    const container = containerRef.current;
+    if (!container) return;
+    setTerminalRect(centerRect(container));
   }, [terminalRect, containerRef, setTerminalRect]);
 
   // Whether a gesture is currently active
   const isGestureActive = useCallback(() => gestureRef.current !== null, []);
+
+  // Helper to release any captured pointer
+  const releaseCapturedPointer = useCallback(() => {
+    const captured = capturedPointerRef.current;
+    if (captured) {
+      try {
+        captured.element.releasePointerCapture(captured.pointerId);
+      } catch {
+        // Element may have been removed from DOM; ignore
+      }
+      capturedPointerRef.current = null;
+    }
+  }, []);
 
   // ── Drag by title bar ───────────────────────────────────────────
 
@@ -150,7 +175,9 @@ export function useFloatingWindow(containerRef: React.RefObject<HTMLElement | nu
         startRect: { ...rect },
       };
 
-      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+      const target = e.target as HTMLElement;
+      target.setPointerCapture(e.pointerId);
+      capturedPointerRef.current = { element: target, pointerId: e.pointerId };
     },
     [getRect],
   );
@@ -185,6 +212,7 @@ export function useFloatingWindow(containerRef: React.RefObject<HTMLElement | nu
       e.stopPropagation();
       gestureRef.current = null;
       rectBeforeGesture.current = null;
+      capturedPointerRef.current = null;
     },
     [],
   );
@@ -207,7 +235,9 @@ export function useFloatingWindow(containerRef: React.RefObject<HTMLElement | nu
         startRect: { ...rect },
       };
 
-      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+      const target = e.target as HTMLElement;
+      target.setPointerCapture(e.pointerId);
+      capturedPointerRef.current = { element: target, pointerId: e.pointerId };
     },
     [getRect],
   );
@@ -237,6 +267,7 @@ export function useFloatingWindow(containerRef: React.RefObject<HTMLElement | nu
       e.stopPropagation();
       gestureRef.current = null;
       rectBeforeGesture.current = null;
+      capturedPointerRef.current = null;
     },
     [],
   );
@@ -254,12 +285,28 @@ export function useFloatingWindow(containerRef: React.RefObject<HTMLElement | nu
         }
         gestureRef.current = null;
         rectBeforeGesture.current = null;
+        // Release pointer capture so the element stops receiving pointer events
+        releaseCapturedPointer();
       }
     }
 
     window.addEventListener('keydown', handleKeyDown, true);
     return () => window.removeEventListener('keydown', handleKeyDown, true);
-  }, [setTerminalRect]);
+  }, [setTerminalRect, releaseCapturedPointer]);
+
+  // ── Re-clamp on browser window resize ─────────────────────────
+
+  useEffect(() => {
+    function handleResize() {
+      const container = containerRef.current;
+      const rect = useGraph.getState().terminalRect;
+      if (!container || !rect) return;
+      setTerminalRect(clampRect(rect, container));
+    }
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [containerRef, setTerminalRect]);
 
   return {
     rect: getRect(),
