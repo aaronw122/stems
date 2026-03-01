@@ -302,14 +302,29 @@ export function createStreamParser(nodeId: string, callbacks: StreamCallbacks = 
         break;
       }
 
-      case 'system': {
-        // Internal CLI events (hook_started, hook_response, etc.) — ignore silently
+      case 'model_usage_metrics': {
+        // Token metrics emitted mid-stream — suppress from terminal.
+        // Authoritative totals arrive in the `result` event at turn end,
+        // so we don't accumulate here to avoid double-counting.
+        break;
+      }
+
+      case 'system':
+      case 'content_block_start':
+      case 'content_block_stop':
+      case 'message_start':
+      case 'message_delta':
+      case 'message_stop':
+      case 'ping': {
+        // Known lifecycle/protocol events — no terminal output needed
         break;
       }
 
       default: {
-        // Unknown event — log it for debugging
-        lines.push(`[${event.type}] ${JSON.stringify(event).slice(0, 150)}`);
+        // Truly unknown event — log server-side for debugging, don't broadcast to terminal
+        if (process.env.DEBUG) {
+          console.debug(`[stream-parser] Unhandled event type: ${event.type}`, JSON.stringify(event).slice(0, 200));
+        }
         break;
       }
     }
