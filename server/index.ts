@@ -19,7 +19,7 @@ import {
   clearHumanNeeded,
   getTerminalLines,
 } from './state.ts';
-import { spawnSession, hasSession, killSession, killAllSessions, sendInput, cleanupStaleProcesses } from './session.ts';
+import { spawnSession, hasSession, killSession, killAllSessions, sendInput } from './session.ts';
 import { getAllActiveFiles, clearNode as clearOverlapNode } from './overlap-tracker.ts';
 import { stopPolling as stopPRPolling, stopTracking as stopPRTracking } from './pr-tracker.ts';
 import { summarizeContext } from './context-summary.ts';
@@ -238,7 +238,6 @@ async function handleMessage(ws: ServerWebSocket<unknown>, raw: string): Promise
 
     case 'send_input': {
       const { nodeId, payload } = msg;
-      console.log(`[ws:send_input] nodeId=${nodeId}, kind=${payload.kind}, hasSession=${hasSession(nodeId)}`);
 
       // Clear human-needed for question/permission responses (not errors —
       // clearing an error state would resurrect a crashed node)
@@ -300,9 +299,6 @@ async function handleMessage(ws: ServerWebSocket<unknown>, raw: string): Promise
 }
 
 // ── Server ───────────────────────────────────────────────────────────
-
-// Cleanup stale processes from previous runs
-await cleanupStaleProcesses();
 
 const server = Bun.serve({
   port: 4800,
