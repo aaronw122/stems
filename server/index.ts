@@ -306,6 +306,7 @@ async function handleMessage(ws: ServerWebSocket<unknown>, raw: string): Promise
 
 const server = Bun.serve({
   port: 4800,
+  idleTimeout: 120, // seconds — osascript folder picker blocks until user responds
 
   async fetch(req) {
     const url = new URL(req.url);
