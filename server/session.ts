@@ -1,5 +1,5 @@
 import type { Subprocess } from 'bun';
-import { updateNode, broadcast, broadcastTerminal } from './state.ts';
+import { updateNode, getNode, broadcast, broadcastTerminal } from './state.ts';
 import { createStreamParser } from './stream-parser.ts';
 import { CLAUDE_BIN } from './cli-paths.ts';
 
@@ -58,22 +58,23 @@ export async function spawnSession(
 ): Promise<void> {
   const interactive = !prompt;
 
-  // Always use -p with --verbose for stream-json output
-  const args = [CLAUDE_BIN, '-p', '--verbose', '--output-format', 'stream-json', '--dangerously-skip-permissions'];
-
-  // Interactive sessions use bidirectional stream-json
-  if (interactive) {
-    args.push('--input-format', 'stream-json');
-  }
+  // Always use -p with --verbose for stream-json I/O and partial message streaming
+  const args = [
+    CLAUDE_BIN,
+    '-p',
+    '--verbose',
+    '--output-format', 'stream-json',
+    '--input-format', 'stream-json',
+    '--include-partial-messages',
+    '--dangerously-skip-permissions',
+  ];
 
   if (appendSystemPrompt) {
     args.push('--append-system-prompt', appendSystemPrompt);
   }
 
-  // One-shot mode: pass prompt as final positional arg
-  if (!interactive) {
-    args.push(prompt);
-  }
+  console.log(`[session:${nodeId}] spawning: ${args.join(' ')}`);
+  console.log(`[session:${nodeId}] cwd: ${repoPath}, interactive: ${interactive}, prompt: ${prompt ? prompt.slice(0, 80) + '...' : '(none)'}`);
 
   const proc = Bun.spawn(args, {
     cwd: repoPath,
@@ -83,7 +84,26 @@ export async function spawnSession(
     env: getCleanEnv(),
   });
 
+  console.log(`[session:${nodeId}] spawned pid: ${proc.pid}`);
+
   sessions.set(nodeId, { process: proc, nodeId, interactive });
+
+  // Send the prompt as a stream-json user_message on stdin
+  if (prompt) {
+    const stdinStream = proc.stdin;
+    if (stdinStream && typeof stdinStream === 'object' && 'write' in stdinStream) {
+      const sink = stdinStream as { write(data: Uint8Array | string): number; flush?(): void };
+      const msg = JSON.stringify({ type: 'user_message', content: prompt });
+      console.log(`[session:${nodeId}] writing to stdin: ${msg.slice(0, 120)}...`);
+      sink.write(msg + '\n');
+      if (typeof sink.flush === 'function') {
+        sink.flush();
+        console.log(`[session:${nodeId}] stdin flushed`);
+      }
+    } else {
+      console.error(`[session:${nodeId}] stdin not writable!`, typeof stdinStream);
+    }
+  }
 
   // Update PID file
   await writePidFile();
@@ -110,16 +130,22 @@ export async function spawnSession(
 
   // Handle process exit
   proc.exited.then(async (code) => {
+    console.log(`[session:${nodeId}] process exited with code ${code}`);
     sessions.delete(nodeId);
     await writePidFile();
 
     if (code !== 0) {
-      const updated = updateNode(nodeId, {
-        nodeState: 'crashed',
-        errorInfo: { type: 'process_exit', message: `Process exited with code ${code}` },
-      });
-      if (updated) {
-        broadcast({ type: 'node_updated', node: updated });
+      // Guard: don't overwrite 'completed' with 'crashed' if the result event
+      // already transitioned the node (race between stream result and exit code)
+      const node = getNode(nodeId);
+      if (node && node.nodeState !== 'completed') {
+        const updated = updateNode(nodeId, {
+          nodeState: 'crashed',
+          errorInfo: { type: 'process_exit', message: `Process exited with code ${code}` },
+        });
+        if (updated) {
+          broadcast({ type: 'node_updated', node: updated });
+        }
       }
     }
   });
@@ -146,6 +172,10 @@ async function drainStderr(nodeId: string, stream: ReadableStream<Uint8Array>): 
 }
 
 // ── Kill a session ───────────────────────────────────────────────────
+
+export function hasSession(nodeId: string): boolean {
+  return sessions.has(nodeId);
+}
 
 export async function killSession(nodeId: string): Promise<void> {
   const session = sessions.get(nodeId);
@@ -179,19 +209,21 @@ export async function killAllSessions(): Promise<void> {
 
 export function sendInput(nodeId: string, text: string): void {
   const session = sessions.get(nodeId);
-  if (!session) return;
+  if (!session) {
+    console.warn(`[sendInput:${nodeId}] no session found — input dropped`);
+    return;
+  }
 
   const stdinStream = session.process.stdin;
   if (stdinStream && typeof stdinStream === 'object' && 'write' in stdinStream) {
-    const sink = stdinStream as { write(data: Uint8Array | string): number };
-
-    if (session.interactive) {
-      // Interactive sessions use stream-json input format
-      const msg = JSON.stringify({ type: 'user_message', content: text });
-      sink.write(msg + '\n');
-    } else {
-      sink.write(text + '\n');
-    }
+    const sink = stdinStream as { write(data: Uint8Array | string): number; flush?(): void };
+    // All sessions now use --input-format stream-json
+    const msg = JSON.stringify({ type: 'user_message', content: text });
+    console.log(`[sendInput:${nodeId}] writing: ${msg.slice(0, 120)}`);
+    sink.write(msg + '\n');
+    if (typeof sink.flush === 'function') sink.flush();
+  } else {
+    console.error(`[sendInput:${nodeId}] stdin not writable`);
   }
 }
 

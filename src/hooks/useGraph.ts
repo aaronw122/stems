@@ -162,6 +162,7 @@ export const useGraph = create<GraphState>((set, get) => ({
       }
 
       case 'terminal_data':
+      case 'terminal_replay':
       case 'error':
         // These are handled elsewhere (terminal panel, error toasts)
         break;

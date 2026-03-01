@@ -1,5 +1,5 @@
 import { broadcastTerminal } from './state.ts';
-import { updateNode, getNode, broadcast } from './state.ts';
+import { updateNode, getNode, broadcast, clearHumanNeeded } from './state.ts';
 import { trackFileEdit } from './overlap-tracker.ts';
 import type { DisplayStage } from '../shared/types.ts';
 import { extractPRUrls, trackPR } from './pr-tracker.ts';
@@ -118,21 +118,6 @@ export function createStreamParser(nodeId: string, callbacks: StreamCallbacks = 
     }
   }
 
-  function clearHumanNeeded(): void {
-    const node = getNode(nodeId);
-    if (node?.needsHuman) {
-      const updated = updateNode(nodeId, {
-        needsHuman: false,
-        nodeState: 'running',
-        humanNeededType: null,
-        humanNeededPayload: null,
-      });
-      if (updated) {
-        broadcast({ type: 'node_updated', node: updated });
-      }
-    }
-  }
-
   // ── Idle timeout management ────────────────────────────────────────
 
   function resetIdleTimer(): void {
@@ -178,12 +163,15 @@ export function createStreamParser(nodeId: string, callbacks: StreamCallbacks = 
   function processEvent(event: StreamEvent): void {
     const lines: string[] = [];
 
+    console.log(`[parser:${nodeId}] event: ${event.type}`);
+
     // Reset idle timer on any event
     resetIdleTimer();
 
-    // Clear human-needed on activity (unless this is the event that sets it)
-    if (event.type !== 'error') {
-      clearHumanNeeded();
+    // Clear idle human-needed on stream activity (session is no longer idle)
+    const currentNode = getNode(nodeId);
+    if (currentNode?.humanNeededType === 'idle') {
+      clearHumanNeeded(nodeId);
     }
 
     switch (event.type) {
@@ -278,6 +266,9 @@ export function createStreamParser(nodeId: string, callbacks: StreamCallbacks = 
         if (node) {
           const updated = updateNode(nodeId, {
             nodeState: 'completed',
+            needsHuman: false,
+            humanNeededType: null,
+            humanNeededPayload: null,
             costUsd: node.costUsd + costUsd,
             tokenUsage: {
               input: node.tokenUsage.input + usage.input,
@@ -313,14 +304,29 @@ export function createStreamParser(nodeId: string, callbacks: StreamCallbacks = 
         break;
       }
 
-      case 'system': {
-        // Internal CLI events (hook_started, hook_response, etc.) — ignore silently
+      case 'model_usage_metrics': {
+        // Token metrics emitted mid-stream — suppress from terminal.
+        // Authoritative totals arrive in the `result` event at turn end,
+        // so we don't accumulate here to avoid double-counting.
+        break;
+      }
+
+      case 'system':
+      case 'content_block_start':
+      case 'content_block_stop':
+      case 'message_start':
+      case 'message_delta':
+      case 'message_stop':
+      case 'ping': {
+        // Known lifecycle/protocol events — no terminal output needed
         break;
       }
 
       default: {
-        // Unknown event — log it for debugging
-        lines.push(`[${event.type}] ${JSON.stringify(event).slice(0, 150)}`);
+        // Truly unknown event — log server-side for debugging, don't broadcast to terminal
+        if (process.env.DEBUG) {
+          console.debug(`[stream-parser] Unhandled event type: ${event.type}`, JSON.stringify(event).slice(0, 200));
+        }
         break;
       }
     }
