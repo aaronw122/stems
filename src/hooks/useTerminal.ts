@@ -5,6 +5,7 @@ const MAX_LINES = 500;
 interface TerminalState {
   buffers: Map<string, string[]>;
   appendLines: (nodeId: string, lines: string[]) => void;
+  setLines: (nodeId: string, lines: string[]) => void;
   getLines: (nodeId: string) => string[];
   clear: (nodeId: string) => void;
 }
@@ -21,6 +22,18 @@ export const useTerminal = create<TerminalState>((set, get) => ({
       const trimmed = combined.length > MAX_LINES
         ? combined.slice(combined.length - MAX_LINES)
         : combined;
+      newBuffers.set(nodeId, trimmed);
+      return { buffers: newBuffers };
+    });
+  },
+
+  setLines(nodeId: string, lines: string[]) {
+    set((state) => {
+      const newBuffers = new Map(state.buffers);
+      // Trim to MAX_LINES, keeping newest
+      const trimmed = lines.length > MAX_LINES
+        ? lines.slice(lines.length - MAX_LINES)
+        : lines;
       newBuffers.set(nodeId, trimmed);
       return { buffers: newBuffers };
     });

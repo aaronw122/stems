@@ -1,6 +1,7 @@
 import { useRef, useState, useEffect, useCallback } from 'react';
 import type { ClientMessage, ServerMessage } from '../../shared/types.ts';
 import { useTerminal } from './useTerminal.ts';
+import { useGraph } from './useGraph.ts';
 
 interface UseWebSocketReturn {
   send: (msg: ClientMessage) => void;
@@ -16,6 +17,7 @@ export function useWebSocket(onMessage?: (msg: ServerMessage) => void): UseWebSo
   onMessageRef.current = onMessage;
 
   const appendLines = useTerminal((s) => s.appendLines);
+  const setLines = useTerminal((s) => s.setLines);
 
   const connect = useCallback(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -27,15 +29,23 @@ export function useWebSocket(onMessage?: (msg: ServerMessage) => void): UseWebSo
     ws.onopen = () => {
       setIsConnected(true);
       reconnectDelayRef.current = 1000;
+
+      // Re-subscribe to terminal for the currently selected node on reconnect
+      const selectedNodeId = useGraph.getState().selectedNodeId;
+      if (selectedNodeId) {
+        ws.send(JSON.stringify({ type: 'subscribe_terminal', nodeId: selectedNodeId }));
+      }
     };
 
     ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data as string) as ServerMessage;
 
-        // Route terminal_data to the terminal store (outside React Flow)
+        // Route terminal messages to the terminal store (outside React Flow)
         if (msg.type === 'terminal_data') {
           appendLines(msg.nodeId, msg.lines);
+        } else if (msg.type === 'terminal_replay') {
+          setLines(msg.nodeId, msg.lines);
         }
 
         // Route all messages to the graph store / other handlers
@@ -60,7 +70,7 @@ export function useWebSocket(onMessage?: (msg: ServerMessage) => void): UseWebSo
     ws.onerror = () => {
       // onclose will fire after onerror, triggering reconnect
     };
-  }, [appendLines]);
+  }, [appendLines, setLines]);
 
   useEffect(() => {
     connect();

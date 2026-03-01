@@ -17,6 +17,7 @@ import {
   broadcast,
   clearTerminalBuffer,
   clearHumanNeeded,
+  getTerminalLines,
 } from './state.ts';
 import { spawnSession, killSession, killAllSessions, sendInput, cleanupStaleProcesses } from './session.ts';
 import { getAllActiveFiles, clearNode as clearOverlapNode } from './overlap-tracker.ts';
@@ -186,6 +187,15 @@ async function handleMessage(ws: ServerWebSocket<unknown>, raw: string): Promise
 
     case 'subscribe_terminal': {
       subscribeTerminal(msg.nodeId, ws);
+      // Replay buffered terminal lines to the subscribing client only
+      const bufferedLines = getTerminalLines(msg.nodeId);
+      if (bufferedLines.length > 0) {
+        ws.send(JSON.stringify({
+          type: 'terminal_replay',
+          nodeId: msg.nodeId,
+          lines: bufferedLines,
+        }));
+      }
       break;
     }
 
