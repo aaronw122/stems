@@ -2,7 +2,8 @@ import { broadcastTerminal, updateNode, getNode, broadcast, clearHumanNeeded } f
 import { trackFileEdit } from './overlap-tracker.ts';
 import type { DisplayStage } from '../shared/types.ts';
 import { extractPRUrls, trackPR } from './pr-tracker.ts';
-import { autoMoveIfComplete } from './completion.ts';
+// Note: autoMoveIfComplete is called by session.ts, not here.
+// The message processor accumulates cost but doesn't manage node lifecycle.
 import type {
   SDKMessage,
   SDKAssistantMessage,
@@ -242,6 +243,9 @@ export function createMessageProcessor(nodeId: string) {
   }
 
   // ── Handle successful result ──────────────────────────────────────
+  // Accumulates cost/tokens but does NOT set nodeState — session.ts
+  // decides whether the node is 'completed' (subtask) or stays 'running'
+  // (interactive feature) after a turn finishes.
 
   function handleResultSuccess(msg: SDKResultSuccess): string[] {
     const lines: string[] = [];
@@ -251,10 +255,6 @@ export function createMessageProcessor(nodeId: string) {
     const node = getNode(nodeId);
     if (node) {
       const updated = updateNode(nodeId, {
-        nodeState: 'completed',
-        needsHuman: false,
-        humanNeededType: null,
-        humanNeededPayload: null,
         costUsd: node.costUsd + msg.total_cost_usd,
         tokenUsage: {
           input: node.tokenUsage.input + msg.usage.input_tokens,
@@ -263,12 +263,10 @@ export function createMessageProcessor(nodeId: string) {
       });
       if (updated) {
         broadcast({ type: 'node_updated', node: updated });
-        // Check if this node (and possibly its parent) can auto-complete
-        autoMoveIfComplete(nodeId);
       }
     }
 
-    lines.push(`[Completed] Cost: $${msg.total_cost_usd.toFixed(4)}`);
+    lines.push(`[Turn done] Cost: $${msg.total_cost_usd.toFixed(4)}`);
     return lines;
   }
 

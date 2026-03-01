@@ -1,69 +1,20 @@
 import { query, AbortError } from '@anthropic-ai/claude-agent-sdk';
-import type { Query, SDKUserMessage, Options } from '@anthropic-ai/claude-agent-sdk';
+import type { Query, Options } from '@anthropic-ai/claude-agent-sdk';
 import { updateNode, getNode, broadcast } from './state.ts';
 import { createMessageProcessor } from './message-processor.ts';
-
-// ── MessageChannel ──────────────────────────────────────────────────
-// An AsyncIterable<SDKUserMessage> with push/close semantics.
-// When the queue is empty, next() blocks until a message is pushed or
-// the channel is closed.
-
-class MessageChannel implements AsyncIterable<SDKUserMessage> {
-  private queue: SDKUserMessage[] = [];
-  private resolve: ((value: IteratorResult<SDKUserMessage>) => void) | null = null;
-  private closed = false;
-
-  push(msg: SDKUserMessage): void {
-    if (this.closed) return;
-
-    if (this.resolve) {
-      // A consumer is already waiting — deliver immediately
-      const r = this.resolve;
-      this.resolve = null;
-      r({ value: msg, done: false });
-    } else {
-      this.queue.push(msg);
-    }
-  }
-
-  close(): void {
-    this.closed = true;
-    if (this.resolve) {
-      const r = this.resolve;
-      this.resolve = null;
-      r({ value: undefined as unknown as SDKUserMessage, done: true });
-    }
-  }
-
-  [Symbol.asyncIterator](): AsyncIterator<SDKUserMessage> {
-    return {
-      next: (): Promise<IteratorResult<SDKUserMessage>> => {
-        // Drain queued messages first
-        if (this.queue.length > 0) {
-          return Promise.resolve({ value: this.queue.shift()!, done: false });
-        }
-
-        // Channel already closed
-        if (this.closed) {
-          return Promise.resolve({ value: undefined as unknown as SDKUserMessage, done: true });
-        }
-
-        // Block until a message arrives or the channel closes
-        return new Promise<IteratorResult<SDKUserMessage>>((resolve) => {
-          this.resolve = resolve;
-        });
-      },
-    };
-  }
-}
+import { autoMoveIfComplete } from './completion.ts';
 
 // ── Session tracking ────────────────────────────────────────────────
+// Each session persists across multiple turns. Between turns, no query
+// is active — the session just holds the SDK session_id for resumption.
 
 interface Session {
   nodeId: string;
-  channel: MessageChannel;
-  abortController: AbortController;
-  queryInstance: Query;
+  sessionId: string | null;  // captured from SDK init message, used for resume
+  repoPath: string;
+  baseOptions: Omit<Options, 'abortController' | 'resume'>;
+  processor: ReturnType<typeof createMessageProcessor>;
+  abortController: AbortController | null;  // non-null only during an active turn
 }
 
 const sessions = new Map<string, Session>();
@@ -75,19 +26,6 @@ function getCleanEnv(): Record<string, string | undefined> {
   return clean;
 }
 
-// ── Helper to build an SDKUserMessage from text ─────────────────────
-
-// session_id is empty because the SDK assigns its own session_id on input
-// messages — it's only meaningful on outbound messages from the SDK
-function makeUserMessage(text: string): SDKUserMessage {
-  return {
-    type: 'user',
-    message: { role: 'user', content: text },
-    parent_tool_use_id: null,
-    session_id: '',
-  } as SDKUserMessage;
-}
-
 // ── Spawn a session via SDK query() ─────────────────────────────────
 
 export async function spawnSession(
@@ -96,36 +34,33 @@ export async function spawnSession(
   prompt: string,
   appendSystemPrompt?: string,
 ): Promise<void> {
-  const abortController = new AbortController();
-  const channel = new MessageChannel();
-
-  // Push the initial prompt as the first user message
-  channel.push(makeUserMessage(prompt));
-
-  // Build options
-  const options: Options = {
+  // Build shared options (reused across turns)
+  const baseOptions: Omit<Options, 'abortController' | 'resume'> = {
     cwd: repoPath,
     permissionMode: 'bypassPermissions',
     allowDangerouslySkipPermissions: true,
     includePartialMessages: true,
-    abortController,
     env: getCleanEnv(),
   };
 
-  // Append to the default Claude Code system prompt if provided
   if (appendSystemPrompt) {
-    options.systemPrompt = {
+    baseOptions.systemPrompt = {
       type: 'preset',
       preset: 'claude_code',
       append: appendSystemPrompt,
     };
   }
 
-  console.log(`[session:${nodeId}] spawning SDK query, cwd: ${repoPath}, prompt: ${prompt.slice(0, 80)}...`);
+  const processor = createMessageProcessor(nodeId);
 
-  const queryInstance = query({ prompt: channel, options });
-
-  const session: Session = { nodeId, channel, abortController, queryInstance };
+  const session: Session = {
+    nodeId,
+    sessionId: null,
+    repoPath,
+    baseOptions,
+    processor,
+    abortController: null,
+  };
   sessions.set(nodeId, session);
 
   // Update node state to running
@@ -134,29 +69,62 @@ export async function spawnSession(
     broadcast({ type: 'node_updated', node: updated });
   }
 
-  // Start consuming the query stream in the background
-  consumeQuery(nodeId, queryInstance).catch((err) => {
-    console.error(`[session:${nodeId}] consumeQuery rejected unexpectedly:`, err);
+  console.log(`[session:${nodeId}] spawning SDK query, cwd: ${repoPath}, prompt: ${prompt.slice(0, 80)}...`);
+
+  // Run the first turn
+  runTurn(session, prompt);
+}
+
+// ── Run a single turn (prompt → response) ───────────────────────────
+
+function runTurn(session: Session, prompt: string): void {
+  const { nodeId } = session;
+  const abortController = new AbortController();
+  session.abortController = abortController;
+
+  // Build turn-specific options
+  const options: Options = {
+    ...session.baseOptions,
+    abortController,
+  };
+
+  // Resume the session for follow-up turns
+  if (session.sessionId) {
+    options.resume = session.sessionId;
+    // System prompt only needed on first turn
+    delete options.systemPrompt;
+  }
+
+  console.log(`[session:${nodeId}] running turn, resume=${session.sessionId ?? 'none'}, prompt: ${prompt.slice(0, 80)}...`);
+
+  const queryInstance = query({ prompt, options });
+
+  // Consume the query stream in the background
+  consumeTurn(session, queryInstance).catch((err) => {
+    console.error(`[session:${nodeId}] consumeTurn rejected unexpectedly:`, err);
   });
 }
 
-// ── Consume the SDK query stream ────────────────────────────────────
+// ── Consume a single turn's query stream ────────────────────────────
 
-async function consumeQuery(nodeId: string, queryInstance: Query): Promise<void> {
-  const processor = createMessageProcessor(nodeId);
+async function consumeTurn(session: Session, queryInstance: Query): Promise<void> {
+  const { nodeId, processor } = session;
 
   try {
     for await (const msg of queryInstance) {
       processor.processMessage(msg);
+
+      // Capture session_id from init message for future resume calls
+      if (msg.type === 'system' && 'subtype' in msg && msg.subtype === 'init') {
+        session.sessionId = msg.session_id;
+      }
     }
   } catch (err: unknown) {
-    // AbortError is expected when we kill a session — don't crash the node
     const isAbort = err instanceof AbortError;
 
     if (!isAbort) {
       console.error(`[session:${nodeId}] query stream error:`, err);
 
-      // Guard: don't overwrite 'completed' with 'crashed'
       const node = getNode(nodeId);
       if (node && node.nodeState !== 'completed') {
         const errorMessage = err instanceof Error ? err.message : String(err);
@@ -169,10 +137,42 @@ async function consumeQuery(nodeId: string, queryInstance: Query): Promise<void>
         }
       }
     }
-  } finally {
+
+    // On error/abort, clean up the session entirely
+    session.abortController = null;
     processor.cleanup();
     sessions.delete(nodeId);
-    console.log(`[session:${nodeId}] query stream ended, session removed`);
+    return;
+  }
+
+  // Turn completed successfully — decide next state based on node type
+  session.abortController = null;
+
+  const node = getNode(nodeId);
+  if (!node) return;
+
+  if (node.type === 'subtask') {
+    // Subtasks are autonomous — complete after their query finishes
+    const updated = updateNode(nodeId, {
+      nodeState: 'completed',
+      needsHuman: false,
+      humanNeededType: null,
+      humanNeededPayload: null,
+    });
+    if (updated) {
+      broadcast({ type: 'node_updated', node: updated });
+      autoMoveIfComplete(nodeId);
+    }
+    processor.cleanup();
+    sessions.delete(nodeId);
+    console.log(`[session:${nodeId}] subtask completed, session removed`);
+  } else {
+    // Features are interactive — stay running for more user input
+    const updated = updateNode(nodeId, { nodeState: 'running' });
+    if (updated) {
+      broadcast({ type: 'node_updated', node: updated });
+    }
+    console.log(`[session:${nodeId}] turn completed, session alive for more input`);
   }
 }
 
@@ -185,8 +185,22 @@ export function sendInput(nodeId: string, text: string): void {
     return;
   }
 
-  console.log(`[sendInput:${nodeId}] pushing message: ${text.slice(0, 120)}`);
-  session.channel.push(makeUserMessage(text));
+  if (session.abortController) {
+    // A turn is already running — this shouldn't happen in normal flow
+    // (user shouldn't be able to send input while Claude is responding)
+    console.warn(`[sendInput:${nodeId}] turn already in progress — input dropped`);
+    return;
+  }
+
+  console.log(`[sendInput:${nodeId}] starting new turn: ${text.slice(0, 120)}`);
+
+  // Update node state to running (may have been idle between turns)
+  const updated = updateNode(nodeId, { nodeState: 'running' });
+  if (updated) {
+    broadcast({ type: 'node_updated', node: updated });
+  }
+
+  runTurn(session, text);
 }
 
 // ── Query session state ─────────────────────────────────────────────
@@ -203,13 +217,15 @@ export async function killSession(nodeId: string): Promise<void> {
 
   console.log(`[session:${nodeId}] killing session`);
 
-  try {
-    session.abortController.abort();
-  } catch {
-    // Abort may throw if already aborted
+  if (session.abortController) {
+    try {
+      session.abortController.abort();
+    } catch {
+      // Abort may throw if already aborted
+    }
   }
 
-  session.channel.close();
+  session.processor.cleanup();
   sessions.delete(nodeId);
 }
 
@@ -218,12 +234,14 @@ export async function killSession(nodeId: string): Promise<void> {
 export async function killAllSessions(): Promise<void> {
   for (const [nodeId, session] of sessions) {
     console.log(`[session:${nodeId}] killing session (shutdown)`);
-    try {
-      session.abortController.abort();
-    } catch {
-      // Ignore
+    if (session.abortController) {
+      try {
+        session.abortController.abort();
+      } catch {
+        // Ignore
+      }
     }
-    session.channel.close();
+    session.processor.cleanup();
   }
   sessions.clear();
 }
