@@ -77,5 +77,6 @@ export type ServerMessage =
   | { type: 'node_updated'; node: WeftNode }
   | { type: 'node_removed'; nodeId: string }
   | { type: 'terminal_data'; nodeId: string; lines: string[] }
+  | { type: 'terminal_replay'; nodeId: string; lines: string[] }
   | { type: 'done_list_updated'; doneList: WeftNode[] }
   | { type: 'error'; message: string };
