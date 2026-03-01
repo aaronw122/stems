@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { FlowCanvas } from './components/FlowCanvas.tsx';
 import { PromptEditor } from './components/panels/PromptEditor.tsx';
 import { TerminalPeek } from './components/panels/TerminalPeek.tsx';
@@ -13,6 +13,12 @@ export default function App() {
   const { send, isConnected } = useWebSocket(processMessage);
 
   const [doneListOpen, setDoneListOpen] = useState(false);
+
+  // Ref to the canvas container for floating terminal positioning
+  const canvasContainerRef = useRef<HTMLDivElement>(null);
+
+  // Track the element that had focus before terminal opened, for focus restoration
+  const previousFocusRef = useRef<HTMLElement | null>(null);
 
   // ── PromptEditor state ──────────────────────────────────────────────
   const [promptEditor, setPromptEditor] = useState<{
@@ -35,6 +41,16 @@ export default function App() {
       }
     };
   }, [selectedNodeId, send]);
+
+  // Focus management: capture focus before terminal opens, restore on close
+  useEffect(() => {
+    if (selectedNodeId) {
+      previousFocusRef.current = document.activeElement as HTMLElement | null;
+    } else if (previousFocusRef.current) {
+      previousFocusRef.current.focus();
+      previousFocusRef.current = null;
+    }
+  }, [selectedNodeId]);
 
   // ── Handlers ────────────────────────────────────────────────────────
 
@@ -61,6 +77,8 @@ export default function App() {
       const isInputFocused = tag === 'INPUT' || tag === 'TEXTAREA';
 
       if (e.key === 'Escape') {
+        // The useFloatingWindow hook handles Escape during active gestures
+        // via a capture-phase listener, so it won't reach here during drag/resize.
         if (promptEditor.isOpen) {
           setPromptEditor((prev) => ({ ...prev, isOpen: false }));
         } else if (selectedNodeId) {
@@ -143,7 +161,7 @@ export default function App() {
   return (
     <div className="flex h-screen w-screen flex-col bg-[#0f0f0f]">
       {/* Canvas takes full space */}
-      <div className="relative flex-1">
+      <div ref={canvasContainerRef} className="relative flex-1">
         <FlowCanvas send={send} onSpawn={handleSpawn} />
 
         {/* Connection indicator */}
@@ -180,11 +198,12 @@ export default function App() {
           spawnType={promptEditor.spawnType}
         />
 
-        {/* Terminal Peek panel */}
+        {/* Floating Terminal window — sibling of ReactFlow, not child */}
         {selectedNodeId && (
           <TerminalPeek
             nodeId={selectedNodeId}
             nodeTitle={selectedNodeTitle}
+            containerRef={canvasContainerRef}
             onClose={handleTerminalClose}
             onSendInput={handleTerminalInput}
           />
