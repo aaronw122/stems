@@ -18,11 +18,32 @@ const MAX_SERVER_MESSAGES = 200;
 const terminalBuffers = new Map<string, TerminalMessage[]>();
 
 export function appendTerminalMessages(nodeId: string, messages: TerminalMessage[]): void {
+  if (messages.length === 0) return;
   const existing = terminalBuffers.get(nodeId) ?? [];
-  const combined = [...existing, ...messages];
-  const trimmed = combined.length > MAX_SERVER_MESSAGES
-    ? combined.slice(combined.length - MAX_SERVER_MESSAGES)
-    : combined;
+
+  // Merge consecutive assistant_text: if the tail of the buffer and the head
+  // of the incoming batch are both assistant_text, concatenate their text
+  // instead of creating a new entry.  This keeps the buffer compact and lets
+  // the client render accumulated text as a single markdown block.
+  let merged: TerminalMessage[];
+  if (
+    existing.length > 0 &&
+    existing[existing.length - 1]!.type === 'assistant_text' &&
+    messages[0]!.type === 'assistant_text'
+  ) {
+    merged = existing.slice();
+    merged[merged.length - 1] = {
+      ...merged[merged.length - 1]!,
+      text: merged[merged.length - 1]!.text + messages[0]!.text,
+    };
+    for (let i = 1; i < messages.length; i++) merged.push(messages[i]!);
+  } else {
+    merged = [...existing, ...messages];
+  }
+
+  const trimmed = merged.length > MAX_SERVER_MESSAGES
+    ? merged.slice(merged.length - MAX_SERVER_MESSAGES)
+    : merged;
   terminalBuffers.set(nodeId, trimmed);
 }
 

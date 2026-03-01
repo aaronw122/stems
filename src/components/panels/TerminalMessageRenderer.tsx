@@ -1,10 +1,61 @@
+import { useMemo } from 'react';
 import type { TerminalMessage } from '../../../shared/types.ts';
+
+// ── Lightweight markdown → HTML for assistant text ─────────────────
+// Runs inside a <pre> with whitespace-pre-wrap, so newlines are
+// already line breaks.  We only need inline formatting + headings.
+
+function markdownToHtml(text: string): string {
+  let html = text;
+
+  // 1. Escape HTML entities
+  html = html
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+  // 2. Fenced code blocks (```...```) — preserve contents, strip lang tag
+  html = html.replace(/```\w*\n([\s\S]*?)```/g, (_, code) =>
+    `<code style="background:rgba(255,255,255,0.08);padding:2px 4px;border-radius:3px">${code.trimEnd()}</code>`
+  );
+
+  // 3. Inline code (`...`)
+  html = html.replace(
+    /`([^`]+)`/g,
+    '<code style="background:rgba(255,255,255,0.08);padding:0 3px;border-radius:2px">$1</code>',
+  );
+
+  // 4. Bold (**...**)
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+
+  // 5. Italic (*...*) — negative lookbehind to avoid matching inside bold
+  html = html.replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, '<em>$1</em>');
+
+  // 6. Headings (# at start of line → bold with slight size bump)
+  html = html.replace(/^(#{1,3})\s+(.+)$/gm, (_, hashes: string, heading: string) => {
+    const level = hashes.length;
+    const size = level === 1 ? '1.15em' : level === 2 ? '1.05em' : '1em';
+    return `<strong style="font-size:${size}">${heading}</strong>`;
+  });
+
+  // 7. Unordered list items (- ...)
+  html = html.replace(/^[-*]\s+(.+)$/gm, '  • $1');
+
+  return html;
+}
+
+// ── Component ──────────────────────────────────────────────────────
 
 interface TerminalMessageRendererProps {
   message: TerminalMessage;
 }
 
 export function TerminalMessageRenderer({ message }: TerminalMessageRendererProps) {
+  const assistantHtml = useMemo(
+    () => (message.type === 'assistant_text' ? markdownToHtml(message.text) : ''),
+    [message.type, message.text],
+  );
+
   switch (message.type) {
     case 'user_message':
       return (
@@ -22,9 +73,10 @@ export function TerminalMessageRenderer({ message }: TerminalMessageRendererProp
 
     case 'assistant_text':
       return (
-        <div style={{ color: 'var(--term-text)' }}>
-          {message.text}
-        </div>
+        <div
+          style={{ color: 'var(--term-text)' }}
+          dangerouslySetInnerHTML={{ __html: assistantHtml }}
+        />
       );
 
     case 'tool_use':

@@ -156,9 +156,9 @@ export function createMessageProcessor(nodeId: string) {
     if (content && Array.isArray(content)) {
       for (const block of content) {
         if (block.type === 'text' && 'text' in block) {
-          const text = block.text as string;
-          messages.push({ type: 'assistant_text', text });
-          tryExtractTitle(text);
+          // Text was already streamed via stream_event deltas — skip to avoid
+          // duplication.  Still use the complete text for title extraction.
+          tryExtractTitle(block.text as string);
         } else if (block.type === 'tool_result' && 'content' in block) {
           // Tool result — extract text content for PR URL scanning
           const toolName = 'tool_use_id' in block ? String(block.tool_use_id) : undefined;

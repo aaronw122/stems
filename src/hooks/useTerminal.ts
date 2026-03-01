@@ -15,14 +15,33 @@ export const useTerminal = create<TerminalState>((set, get) => ({
   buffers: new Map(),
 
   appendMessages(nodeId: string, messages: TerminalMessage[]) {
+    if (messages.length === 0) return;
     set((state) => {
       const newBuffers = new Map(state.buffers);
       const existing = newBuffers.get(nodeId) ?? [];
-      const combined = [...existing, ...messages];
-      // Trim to MAX_MESSAGES, keeping newest
-      const trimmed = combined.length > MAX_MESSAGES
-        ? combined.slice(combined.length - MAX_MESSAGES)
-        : combined;
+
+      // Merge consecutive assistant_text: if the tail of the buffer and the
+      // head of the incoming batch are both assistant_text, concatenate their
+      // text so markdown renders as a single block.
+      let merged: TerminalMessage[];
+      if (
+        existing.length > 0 &&
+        existing[existing.length - 1]!.type === 'assistant_text' &&
+        messages[0]!.type === 'assistant_text'
+      ) {
+        merged = existing.slice();
+        merged[merged.length - 1] = {
+          ...merged[merged.length - 1]!,
+          text: merged[merged.length - 1]!.text + messages[0]!.text,
+        };
+        for (let i = 1; i < messages.length; i++) merged.push(messages[i]!);
+      } else {
+        merged = [...existing, ...messages];
+      }
+
+      const trimmed = merged.length > MAX_MESSAGES
+        ? merged.slice(merged.length - MAX_MESSAGES)
+        : merged;
       newBuffers.set(nodeId, trimmed);
       return { buffers: newBuffers };
     });
