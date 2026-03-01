@@ -175,6 +175,7 @@ async function handleMessage(ws: ServerWebSocket<unknown>, raw: string): Promise
         }
 
         const appendSystemPrompt = promptParts.length > 0 ? promptParts.join('\n\n') : undefined;
+        broadcastTerminal(node.id, [{ type: 'user_message', text: msg.prompt }]);
         await spawnSession(node.id, repoPath, msg.prompt, appendSystemPrompt);
       } else if (!repoPath) {
         const updated = updateNode(node.id, {
@@ -274,6 +275,7 @@ async function handleMessage(ws: ServerWebSocket<unknown>, raw: string): Promise
             updateNode(nodeId, { prompt: payload.text });
           }
 
+          broadcastTerminal(nodeId, [{ type: 'user_message', text: payload.text }]);
           await spawnSession(nodeId, repoPath, payload.text, appendSystemPrompt);
           break;
         }
