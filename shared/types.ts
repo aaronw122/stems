@@ -85,6 +85,7 @@ export type ClientMessage =
   | { type: 'unsubscribe_terminal'; nodeId: string }
   | { type: 'update_title'; nodeId: string; title: string }
   | { type: 'close_node'; nodeId: string }
+  | { type: 'delete_tree'; nodeId: string }
   | { type: 'node_moved'; nodeId: string; x: number; y: number }
   | { type: 'send_input'; nodeId: string; payload: SendInputPayload };
 
@@ -98,4 +99,5 @@ export type ServerMessage =
   | { type: 'terminal_data'; nodeId: string; messages: TerminalMessage[] }
   | { type: 'terminal_replay'; nodeId: string; messages: TerminalMessage[] }
   | { type: 'done_list_updated'; doneList: WeftNode[] }
+  | { type: 'tree_removed'; nodeIds: string[] }
   | { type: 'error'; message: string };

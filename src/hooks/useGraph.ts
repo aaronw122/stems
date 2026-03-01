@@ -156,6 +156,20 @@ export const useGraph = create<GraphState>((set, get) => ({
         break;
       }
 
+      case 'tree_removed': {
+        const removedSet = new Set(msg.nodeIds);
+        set((state) => ({
+          nodes: state.nodes.filter((n) => !removedSet.has(n.id)),
+          edges: state.edges.filter(
+            (e) => !removedSet.has(e.source) && !removedSet.has(e.target),
+          ),
+          ...(state.selectedNodeId && removedSet.has(state.selectedNodeId)
+            ? { selectedNodeId: null }
+            : {}),
+        }));
+        break;
+      }
+
       case 'done_list_updated': {
         set({ doneList: msg.doneList });
         break;
