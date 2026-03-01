@@ -1,5 +1,5 @@
 import type { ServerWebSocket } from 'bun';
-import type { WeftNode, WeftEdge, ServerMessage } from '../shared/types.ts';
+import type { WeftNode, WeftEdge, ServerMessage, TerminalMessage } from '../shared/types.ts';
 
 // ── In-memory state ──────────────────────────────────────────────────
 
@@ -14,19 +14,40 @@ const terminalSubscriptions = new Map<string, Set<ServerWebSocket<unknown>>>();
 
 // ── Server-side terminal buffers (for context summarization) ────────
 
-const MAX_SERVER_LINES = 200;
-const terminalBuffers = new Map<string, string[]>();
+const MAX_SERVER_MESSAGES = 200;
+const terminalBuffers = new Map<string, TerminalMessage[]>();
 
-export function appendTerminalLines(nodeId: string, lines: string[]): void {
+export function appendTerminalMessages(nodeId: string, messages: TerminalMessage[]): void {
+  if (messages.length === 0) return;
   const existing = terminalBuffers.get(nodeId) ?? [];
-  const combined = [...existing, ...lines];
-  const trimmed = combined.length > MAX_SERVER_LINES
-    ? combined.slice(combined.length - MAX_SERVER_LINES)
-    : combined;
+
+  // Merge consecutive assistant_text: if the tail of the buffer and the head
+  // of the incoming batch are both assistant_text, concatenate their text
+  // instead of creating a new entry.  This keeps the buffer compact and lets
+  // the client render accumulated text as a single markdown block.
+  let merged: TerminalMessage[];
+  if (
+    existing.length > 0 &&
+    existing[existing.length - 1]!.type === 'assistant_text' &&
+    messages[0]!.type === 'assistant_text'
+  ) {
+    merged = existing.slice();
+    merged[merged.length - 1] = {
+      ...merged[merged.length - 1]!,
+      text: merged[merged.length - 1]!.text + messages[0]!.text,
+    };
+    for (let i = 1; i < messages.length; i++) merged.push(messages[i]!);
+  } else {
+    merged = [...existing, ...messages];
+  }
+
+  const trimmed = merged.length > MAX_SERVER_MESSAGES
+    ? merged.slice(merged.length - MAX_SERVER_MESSAGES)
+    : merged;
   terminalBuffers.set(nodeId, trimmed);
 }
 
-export function getTerminalLines(nodeId: string, lastN?: number): string[] {
+export function getTerminalMessages(nodeId: string, lastN?: number): TerminalMessage[] {
   const buf = terminalBuffers.get(nodeId) ?? [];
   if (lastN && lastN < buf.length) {
     return buf.slice(buf.length - lastN);
@@ -157,9 +178,9 @@ export function broadcast(msg: ServerMessage): void {
   }
 }
 
-export function broadcastTerminal(nodeId: string, lines: string[]): void {
-  // Store lines server-side for context summarization
-  appendTerminalLines(nodeId, lines);
+export function broadcastTerminal(nodeId: string, messages: TerminalMessage[]): void {
+  // Store messages server-side for context summarization
+  appendTerminalMessages(nodeId, messages);
 
   const subs = terminalSubscriptions.get(nodeId);
   if (!subs || subs.size === 0) return;
@@ -167,7 +188,7 @@ export function broadcastTerminal(nodeId: string, lines: string[]): void {
   const data = JSON.stringify({
     type: 'terminal_data',
     nodeId,
-    lines,
+    messages,
   } satisfies ServerMessage);
 
   for (const ws of subs) {

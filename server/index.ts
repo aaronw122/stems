@@ -15,9 +15,10 @@ import {
   subscribeTerminal,
   unsubscribeTerminal,
   broadcast,
+  broadcastTerminal,
   clearTerminalBuffer,
   clearHumanNeeded,
-  getTerminalLines,
+  getTerminalMessages,
 } from './state.ts';
 import { spawnSession, hasSession, killSession, killAllSessions, sendInput } from './session.ts';
 import { getAllActiveFiles, clearNode as clearOverlapNode } from './overlap-tracker.ts';
@@ -174,6 +175,7 @@ async function handleMessage(ws: ServerWebSocket<unknown>, raw: string): Promise
         }
 
         const appendSystemPrompt = promptParts.length > 0 ? promptParts.join('\n\n') : undefined;
+        broadcastTerminal(node.id, [{ type: 'user_message', text: msg.prompt }]);
         await spawnSession(node.id, repoPath, msg.prompt, appendSystemPrompt);
       } else if (!repoPath) {
         const updated = updateNode(node.id, {
@@ -189,13 +191,13 @@ async function handleMessage(ws: ServerWebSocket<unknown>, raw: string): Promise
 
     case 'subscribe_terminal': {
       subscribeTerminal(msg.nodeId, ws);
-      // Replay buffered terminal lines to the subscribing client only
-      const bufferedLines = getTerminalLines(msg.nodeId);
-      if (bufferedLines.length > 0) {
+      // Replay buffered terminal messages to the subscribing client only
+      const bufferedMessages = getTerminalMessages(msg.nodeId);
+      if (bufferedMessages.length > 0) {
         ws.send(JSON.stringify({
           type: 'terminal_replay',
           nodeId: msg.nodeId,
-          lines: bufferedLines,
+          messages: bufferedMessages,
         }));
       }
       break;
@@ -273,6 +275,7 @@ async function handleMessage(ws: ServerWebSocket<unknown>, raw: string): Promise
             updateNode(nodeId, { prompt: payload.text });
           }
 
+          broadcastTerminal(nodeId, [{ type: 'user_message', text: payload.text }]);
           await spawnSession(nodeId, repoPath, payload.text, appendSystemPrompt);
           break;
         }
@@ -280,12 +283,15 @@ async function handleMessage(ws: ServerWebSocket<unknown>, raw: string): Promise
 
       switch (payload.kind) {
         case 'question_answer':
+          broadcastTerminal(nodeId, [{ type: 'user_message', text: payload.answer }]);
           sendInput(nodeId, payload.answer);
           break;
         case 'permission':
+          broadcastTerminal(nodeId, [{ type: 'user_message', text: payload.granted ? 'yes' : 'no' }]);
           sendInput(nodeId, payload.granted ? 'yes' : 'no');
           break;
         case 'text_input':
+          broadcastTerminal(nodeId, [{ type: 'user_message', text: payload.text }]);
           sendInput(nodeId, payload.text);
           break;
       }
@@ -302,6 +308,7 @@ async function handleMessage(ws: ServerWebSocket<unknown>, raw: string): Promise
 
 const server = Bun.serve({
   port: 4800,
+  idleTimeout: 120, // seconds — osascript folder picker blocks until user responds
 
   async fetch(req) {
     const url = new URL(req.url);

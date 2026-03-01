@@ -1,4 +1,4 @@
-import { getTerminalLines, getNode } from './state.ts';
+import { getTerminalMessages, getNode } from './state.ts';
 import { CLAUDE_BIN } from './cli-paths.ts';
 
 const SUMMARIZE_TIMEOUT_MS = 15_000;
@@ -13,17 +13,17 @@ export async function summarizeContext(parentNodeId: string): Promise<string> {
   const parentNode = getNode(parentNodeId);
   const rawFallback = parentNode?.prompt ?? '';
 
-  // Get the parent's terminal buffer (last ~100 lines)
-  const lines = getTerminalLines(parentNodeId, 100);
+  // Get the parent's terminal buffer (last ~100 messages)
+  const messages = getTerminalMessages(parentNodeId, 100);
 
   // If there's no terminal output, fall back to the raw prompt
-  if (lines.length === 0) {
+  if (messages.length === 0) {
     return rawFallback
       ? `Context from parent task:\n${rawFallback}`
       : '';
   }
 
-  const sessionOutput = lines.join('\n');
+  const sessionOutput = messages.map(m => m.text).join('\n');
   const prompt = `Summarize the following agent session output into a concise 2-3 sentence context block for a child task. Focus on: what was accomplished, what files were modified, current state. Output ONLY the summary, no preamble.\n\n<session>\n${sessionOutput}\n</session>`;
 
   try {

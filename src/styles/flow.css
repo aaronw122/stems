@@ -21,7 +21,7 @@ body {
   font-size: 12px;
 }
 
-/* ── Retro Terminal (Mac OS X style) ── */
+/* ── Terminal Window Chrome (Mac OS X style) ── */
 
 .terminal-titlebar {
   background: linear-gradient(180deg, #e8e8e8 0%, #d0d0d0 50%, #c8c8c8 100%);
@@ -51,10 +51,6 @@ body {
   filter: brightness(1.1);
 }
 
-.terminal-glow {
-  text-shadow: 0 0 4px rgba(255, 176, 0, 0.3);
-}
-
 @keyframes blink-cursor {
   0%, 100% { opacity: 1; }
   50% { opacity: 0; }
@@ -62,7 +58,7 @@ body {
 
 .terminal-cursor::after {
   content: '\2588';
-  color: #ffb000;
+  color: var(--term-text);
   animation: blink-cursor 1s step-end infinite;
 }
 
@@ -70,8 +66,8 @@ body {
 
 .terminal-floating-window {
   box-shadow:
-    0 25px 50px -12px rgba(0, 0, 0, 0.6),
-    0 0 0 1px rgba(255, 176, 0, 0.08);
+    0 25px 50px -12px var(--term-shadow),
+    0 0 0 1px var(--term-border);
 }
 
 /* Resize handles — invisible but functional */
@@ -83,12 +79,12 @@ body {
 
 /* Subtle visual indicator on hover for edges */
 .terminal-resize-edge:hover {
-  background: rgba(255, 176, 0, 0.1);
+  background: color-mix(in srgb, var(--term-border) 20%, transparent);
 }
 
 /* Subtle visual indicator on hover for corners */
 .terminal-resize-corner:hover {
-  background: rgba(255, 176, 0, 0.15);
+  background: color-mix(in srgb, var(--term-border) 30%, transparent);
   border-radius: 2px;
 }
 
@@ -102,7 +98,7 @@ body {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: rgba(255, 176, 0, 0.15);
+  background: color-mix(in srgb, var(--term-border) 30%, transparent);
   transition: background 150ms ease;
 }
 
@@ -115,5 +111,49 @@ body {
 .terminal-resize-handle--sw:hover::after,
 .terminal-resize-handle--ne:hover::after,
 .terminal-resize-handle--nw:hover::after {
-  background: rgba(255, 176, 0, 0.4);
+  background: color-mix(in srgb, var(--term-border) 60%, transparent);
+}
+
+/* ── Terminal Message Types ── */
+
+.term-msg-user {
+  background: var(--term-user-bg);
+  border-left: 3px solid var(--term-user-border);
+  color: var(--term-user-text);
+  padding: 4px 8px;
+  margin: 2px 0;
+  border-radius: 2px;
+}
+
+.term-msg-tool {
+  color: var(--term-tool-name);
+  padding: 1px 0;
+}
+
+.term-msg-tool .tool-bullet {
+  color: var(--term-tool-success);
+}
+
+.term-msg-tool .tool-bullet--error {
+  color: var(--term-tool-error);
+}
+
+.term-msg-human-needed {
+  background: var(--term-human-needed-bg);
+  border-left: 3px solid var(--term-human-needed-border);
+  color: var(--term-human-needed-text);
+  padding: 4px 8px;
+  margin: 2px 0;
+  border-radius: 2px;
+}
+
+.term-msg-system {
+  color: var(--term-system-text);
+  font-style: italic;
+  padding: 1px 0;
+}
+
+.term-msg-error {
+  color: var(--term-error-text);
+  padding: 1px 0;
 }

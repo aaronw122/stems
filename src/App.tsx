@@ -54,18 +54,21 @@ export default function App() {
 
   // ── Handlers ────────────────────────────────────────────────────────
 
+  const pickingFolderRef = useRef(false);
+
   const handleAddRepo = useCallback(async () => {
+    if (pickingFolderRef.current) return; // prevent double-fire from double-click or key repeat
+    pickingFolderRef.current = true;
     try {
-      console.log('[add-repo] Opening folder picker...');
       const res = await fetch('/api/pick-folder');
       const data = await res.json();
-      console.log('[add-repo] Response:', data);
       if (data.path) {
-        console.log('[add-repo] Sending add_repo:', data.path);
         send({ type: 'add_repo', path: data.path });
       }
     } catch (err) {
       console.error('[add-repo] Failed:', err);
+    } finally {
+      pickingFolderRef.current = false;
     }
   }, [send]);
 

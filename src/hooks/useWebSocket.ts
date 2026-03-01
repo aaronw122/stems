@@ -16,8 +16,8 @@ export function useWebSocket(onMessage?: (msg: ServerMessage) => void): UseWebSo
   const onMessageRef = useRef(onMessage);
   onMessageRef.current = onMessage;
 
-  const appendLines = useTerminal((s) => s.appendLines);
-  const setLines = useTerminal((s) => s.setLines);
+  const appendMessages = useTerminal((s) => s.appendMessages);
+  const setMessages = useTerminal((s) => s.setMessages);
 
   const connect = useCallback(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -43,9 +43,9 @@ export function useWebSocket(onMessage?: (msg: ServerMessage) => void): UseWebSo
 
         // Route terminal messages to the terminal store (outside React Flow)
         if (msg.type === 'terminal_data') {
-          appendLines(msg.nodeId, msg.lines);
+          appendMessages(msg.nodeId, msg.messages);
         } else if (msg.type === 'terminal_replay') {
-          setLines(msg.nodeId, msg.lines);
+          setMessages(msg.nodeId, msg.messages);
         }
 
         // Route all messages to the graph store / other handlers
@@ -70,7 +70,7 @@ export function useWebSocket(onMessage?: (msg: ServerMessage) => void): UseWebSo
     ws.onerror = () => {
       // onclose will fire after onerror, triggering reconnect
     };
-  }, [appendLines, setLines]);
+  }, [appendMessages, setMessages]);
 
   useEffect(() => {
     connect();

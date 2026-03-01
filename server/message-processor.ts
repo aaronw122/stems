@@ -1,6 +1,6 @@
 import { broadcastTerminal, updateNode, getNode, broadcast, clearHumanNeeded } from './state.ts';
 import { trackFileEdit } from './overlap-tracker.ts';
-import type { DisplayStage } from '../shared/types.ts';
+import type { DisplayStage, TerminalMessage } from '../shared/types.ts';
 import { extractPRUrls, trackPR } from './pr-tracker.ts';
 // Note: autoMoveIfComplete is called by session.ts, not here.
 // The message processor accumulates cost but doesn't manage node lifecycle.
@@ -149,35 +149,46 @@ export function createMessageProcessor(nodeId: string) {
 
   // ── Handle assistant message (complete turn) ──────────────────────
 
-  function handleAssistant(msg: SDKAssistantMessage): string[] {
-    const lines: string[] = [];
+  function handleAssistant(msg: SDKAssistantMessage): TerminalMessage[] {
+    const messages: TerminalMessage[] = [];
     const content = msg.message?.content;
 
     if (content && Array.isArray(content)) {
       for (const block of content) {
         if (block.type === 'text' && 'text' in block) {
-          const text = block.text as string;
-          lines.push(text);
-          tryExtractTitle(text);
+          // Text was already streamed via stream_event deltas — skip to avoid
+          // duplication.  Still use the complete text for title extraction.
+          tryExtractTitle(block.text as string);
         } else if (block.type === 'tool_result' && 'content' in block) {
           // Tool result — extract text content for PR URL scanning
+          const toolName = 'tool_use_id' in block ? String(block.tool_use_id) : undefined;
           const resultContent = block.content;
           if (typeof resultContent === 'string') {
             const truncated = resultContent.length > 200 ? resultContent.slice(0, 200) + '...' : resultContent;
-            lines.push(`[Result] ${truncated}`);
+            messages.push({ type: 'tool_result', text: truncated, toolName });
           } else if (Array.isArray(resultContent)) {
             for (const part of resultContent) {
               if (typeof part === 'object' && part !== null && 'type' in part && part.type === 'text' && 'text' in part) {
                 const text = String(part.text);
                 const truncated = text.length > 200 ? text.slice(0, 200) + '...' : text;
-                lines.push(`[Result] ${truncated}`);
+                messages.push({ type: 'tool_result', text: truncated, toolName });
               }
             }
           }
         } else if (block.type === 'tool_use' && 'name' in block) {
           const name = String(block.name ?? 'unknown_tool');
           const input = 'input' in block ? block.input : undefined;
-          lines.push(`[Tool: ${name}]`);
+
+          // Precedence rule: AskUserQuestion emits human_needed, not tool_use
+          if (name === 'AskUserQuestion') {
+            const questionText = input && typeof input === 'object' && 'question' in (input as Record<string, unknown>)
+              ? String((input as Record<string, unknown>).question)
+              : name;
+            messages.push({ type: 'human_needed', text: questionText });
+            setHumanNeeded('question', input);
+          } else {
+            messages.push({ type: 'tool_use', text: name, toolName: name });
+          }
 
           // Track file edits for overlap detection
           if ((name === 'Edit' || name === 'Write') && input && typeof input === 'object') {
@@ -201,11 +212,6 @@ export function createMessageProcessor(nodeId: string) {
               transitionStage('testing');
             }
           }
-
-          // Human-needed: AskUserQuestion
-          if (name === 'AskUserQuestion') {
-            setHumanNeeded('question', input);
-          }
         }
       }
     }
@@ -213,16 +219,16 @@ export function createMessageProcessor(nodeId: string) {
     // Check for API-level errors (auth, billing, rate_limit, etc.)
     if (msg.error) {
       setHumanNeeded('error', msg.error);
-      lines.push(`[API Error] ${msg.error}`);
+      messages.push({ type: 'error', text: `[API Error] ${msg.error}` });
     }
 
-    return lines;
+    return messages;
   }
 
   // ── Handle streaming partial message ──────────────────────────────
 
-  function handleStreamEvent(msg: SDKPartialAssistantMessage): string[] {
-    const lines: string[] = [];
+  function handleStreamEvent(msg: SDKPartialAssistantMessage): TerminalMessage[] {
+    const messages: TerminalMessage[] = [];
     const event = msg.event;
 
     // Check for content_block_delta with text_delta
@@ -234,12 +240,12 @@ export function createMessageProcessor(nodeId: string) {
     ) {
       const delta = event.delta as { type?: string; text?: string };
       if (delta?.type === 'text_delta' && delta.text) {
-        lines.push(delta.text);
+        messages.push({ type: 'assistant_text', text: delta.text });
         tryExtractTitle(delta.text);
       }
     }
 
-    return lines;
+    return messages;
   }
 
   // ── Handle successful result ──────────────────────────────────────
@@ -247,8 +253,8 @@ export function createMessageProcessor(nodeId: string) {
   // decides whether the node is 'completed' (subtask) or stays 'running'
   // (interactive feature) after a turn finishes.
 
-  function handleResultSuccess(msg: SDKResultSuccess): string[] {
-    const lines: string[] = [];
+  function handleResultSuccess(msg: SDKResultSuccess): TerminalMessage[] {
+    const messages: TerminalMessage[] = [];
 
     clearIdleTimer();
 
@@ -266,15 +272,14 @@ export function createMessageProcessor(nodeId: string) {
       }
     }
 
-    // Cost is tracked on the node but not shown in terminal —
-    // the SDK reports estimated API cost, but we use Claude Code subscription
-    return lines;
+    messages.push({ type: 'system', text: 'Completed', costUsd: msg.total_cost_usd });
+    return messages;
   }
 
   // ── Handle error result ───────────────────────────────────────────
 
-  function handleResultError(msg: SDKResultError): string[] {
-    const lines: string[] = [];
+  function handleResultError(msg: SDKResultError): TerminalMessage[] {
+    const messages: TerminalMessage[] = [];
 
     clearIdleTimer();
 
@@ -290,14 +295,14 @@ export function createMessageProcessor(nodeId: string) {
       broadcast({ type: 'node_updated', node: updated });
     }
 
-    lines.push(`[Error] ${errorMsg}`);
-    return lines;
+    messages.push({ type: 'error', text: errorMsg });
+    return messages;
   }
 
   // ── Main message processor ────────────────────────────────────────
 
   function processMessage(msg: SDKMessage): void {
-    const lines: string[] = [];
+    const messages: TerminalMessage[] = [];
 
     // Log non-streaming messages; stream_event is too frequent for default logging
     if (msg.type !== 'stream_event') {
@@ -323,21 +328,21 @@ export function createMessageProcessor(nodeId: string) {
       }
 
       case 'assistant': {
-        lines.push(...handleAssistant(msg as SDKAssistantMessage));
+        messages.push(...handleAssistant(msg as SDKAssistantMessage));
         break;
       }
 
       case 'stream_event': {
-        lines.push(...handleStreamEvent(msg as SDKPartialAssistantMessage));
+        messages.push(...handleStreamEvent(msg as SDKPartialAssistantMessage));
         break;
       }
 
       case 'result': {
         if ('subtype' in msg && msg.subtype === 'success') {
-          lines.push(...handleResultSuccess(msg as SDKResultSuccess));
+          messages.push(...handleResultSuccess(msg as SDKResultSuccess));
         } else {
           // Any result with subtype starting with 'error_' is an error
-          lines.push(...handleResultError(msg as SDKResultError));
+          messages.push(...handleResultError(msg as SDKResultError));
         }
         break;
       }
@@ -356,16 +361,16 @@ export function createMessageProcessor(nodeId: string) {
       }
     }
 
-    // Scan all output lines for PR URLs
-    for (const line of lines) {
-      const prUrls = extractPRUrls(line);
+    // Scan all output messages for PR URLs
+    for (const m of messages) {
+      const prUrls = extractPRUrls(m.text);
       for (const prUrl of prUrls) {
         trackPR(nodeId, prUrl);
       }
     }
 
-    if (lines.length > 0) {
-      broadcastTerminal(nodeId, lines);
+    if (messages.length > 0) {
+      broadcastTerminal(nodeId, messages);
     }
   }
 
