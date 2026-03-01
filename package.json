@@ -1,0 +1,34 @@
+{
+  "name": "stems",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "bun run dev:server & bun run dev:client",
+    "dev:server": "bun --watch server/index.ts",
+    "dev:client": "bunx vite",
+    "build": "bunx vite build",
+    "start": "bun server/index.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.9",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3"
+  },
+  "peerDependencies": {
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@tailwindcss/vite": "^4.2.1",
+    "@types/dagre": "^0.7.54",
+    "@vitejs/plugin-react": "^5.1.4",
+    "@xyflow/react": "^12.10.1",
+    "ansi-to-html": "^0.7.2",
+    "dagre": "^0.8.5",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "tailwindcss": "^4.2.1",
+    "vite": "^7.3.1",
+    "zustand": "^5.0.11"
+  }
+}
