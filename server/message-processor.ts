@@ -158,8 +158,23 @@ export function createMessageProcessor(nodeId: string) {
           const text = block.text as string;
           lines.push(text);
           tryExtractTitle(text);
+        } else if (block.type === 'tool_result' && 'content' in block) {
+          // Tool result — extract text content for PR URL scanning
+          const resultContent = block.content;
+          if (typeof resultContent === 'string') {
+            const truncated = resultContent.length > 200 ? resultContent.slice(0, 200) + '...' : resultContent;
+            lines.push(`[Result] ${truncated}`);
+          } else if (Array.isArray(resultContent)) {
+            for (const part of resultContent) {
+              if (typeof part === 'object' && part !== null && 'type' in part && part.type === 'text' && 'text' in part) {
+                const text = String(part.text);
+                const truncated = text.length > 200 ? text.slice(0, 200) + '...' : text;
+                lines.push(`[Result] ${truncated}`);
+              }
+            }
+          }
         } else if (block.type === 'tool_use' && 'name' in block) {
-          const name = (block.name as string) ?? 'unknown_tool';
+          const name = String(block.name ?? 'unknown_tool');
           const input = 'input' in block ? block.input : undefined;
           lines.push(`[Tool: ${name}]`);
 
@@ -285,7 +300,10 @@ export function createMessageProcessor(nodeId: string) {
   function processMessage(msg: SDKMessage): void {
     const lines: string[] = [];
 
-    console.log(`[msg-processor:${nodeId}] message: ${msg.type}`);
+    // Log non-streaming messages; stream_event is too frequent for default logging
+    if (msg.type !== 'stream_event') {
+      console.log(`[msg-processor:${nodeId}] message: ${msg.type}`);
+    }
 
     // Reset idle timer on any message
     resetIdleTimer();

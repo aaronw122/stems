@@ -1,4 +1,4 @@
-import { query } from '@anthropic-ai/claude-agent-sdk';
+import { query, AbortError } from '@anthropic-ai/claude-agent-sdk';
 import type { Query, SDKUserMessage, Options } from '@anthropic-ai/claude-agent-sdk';
 import { updateNode, getNode, broadcast } from './state.ts';
 import { createMessageProcessor } from './message-processor.ts';
@@ -77,6 +77,8 @@ function getCleanEnv(): Record<string, string | undefined> {
 
 // ── Helper to build an SDKUserMessage from text ─────────────────────
 
+// session_id is empty because the SDK assigns its own session_id on input
+// messages — it's only meaningful on outbound messages from the SDK
 function makeUserMessage(text: string): SDKUserMessage {
   return {
     type: 'user',
@@ -149,9 +151,7 @@ async function consumeQuery(nodeId: string, queryInstance: Query): Promise<void>
     }
   } catch (err: unknown) {
     // AbortError is expected when we kill a session — don't crash the node
-    const isAbort =
-      err instanceof Error &&
-      (err.name === 'AbortError' || err.message.includes('aborted'));
+    const isAbort = err instanceof AbortError;
 
     if (!isAbort) {
       console.error(`[session:${nodeId}] query stream error:`, err);
