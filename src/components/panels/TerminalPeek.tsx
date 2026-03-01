@@ -1,8 +1,8 @@
-import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import AnsiToHtml from 'ansi-to-html';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { useTerminal } from '../../hooks/useTerminal.ts';
 import { useFloatingWindow } from '../../hooks/useFloatingWindow.ts';
 import type { TerminalMessage } from '../../../shared/types.ts';
+import { TerminalMessageRenderer } from './TerminalMessageRenderer.tsx';
 
 interface TerminalPeekProps {
   nodeId: string;
@@ -34,11 +34,6 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
   const inputRef = useRef<HTMLInputElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const prevMessageCountRef = useRef(0);
-
-  const converter = useMemo(
-    () => new AnsiToHtml({ fg: '#ffb000', bg: '#1a1a1a', newline: false }),
-    [],
-  );
 
   const {
     rect,
@@ -168,12 +163,13 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
   return (
     <div
       ref={rootRef}
-      className="absolute z-40 flex flex-col overflow-hidden rounded-lg bg-[#1a1a1a] shadow-2xl terminal-floating-window"
+      className="absolute z-40 flex flex-col overflow-hidden rounded-lg shadow-2xl terminal-floating-window"
       style={{
         left: rect.x,
         top: rect.y,
         width: rect.width,
         height: rect.height,
+        backgroundColor: 'var(--term-bg)',
         // Prevent user-select during drag/resize
         userSelect: isGestureActive() ? 'none' : undefined,
       }}
@@ -216,15 +212,12 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
         onScroll={handleScroll}
         className="nowheel flex-1 overflow-y-auto px-4 py-3"
       >
-        <pre className="terminal-glow whitespace-pre-wrap break-words font-mono text-xs leading-5 text-[#ffb000]">
+        <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-5" style={{ color: 'var(--term-text)' }}>
           {messages.map((msg, i) => (
-            <div
-              key={i}
-              dangerouslySetInnerHTML={{ __html: converter.toHtml(msg.text) }}
-            />
+            <TerminalMessageRenderer key={i} message={msg} />
           ))}
           {messages.length === 0 && (
-            <span className="text-[#7a5800]">
+            <span style={{ color: 'var(--term-text-dim)' }}>
               Waiting for output...<span className="terminal-cursor" />
             </span>
           )}
@@ -240,14 +233,21 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
               scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
             }
           }}
-          className="mx-4 mb-1 rounded bg-[#2a2000]/80 px-2 py-1 text-xs text-[#ffb000]/60 hover:text-[#ffb000] transition-colors"
+          className="mx-4 mb-1 rounded px-2 py-1 text-xs transition-colors"
+          style={{
+            backgroundColor: 'var(--term-input-bg)',
+            color: 'var(--term-text-dim)',
+          }}
         >
           Scroll to bottom
         </button>
       )}
 
       {/* Input area */}
-      <div className="flex items-center gap-2 border-t border-[#3a3000] px-4 py-3">
+      <div
+        className="flex items-center gap-2 px-4 py-3"
+        style={{ borderTop: '1px solid var(--term-input-border)' }}
+      >
         <input
           ref={inputRef}
           type="text"
@@ -255,12 +255,21 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder="Send input to session..."
-          className="flex-1 rounded-md border border-[#5a4500] bg-[#111000] px-3 py-1.5 font-mono text-sm text-[#ffb000] placeholder-[#7a5800] outline-none focus:border-[#ffb000]"
+          className="flex-1 rounded-md px-3 py-1.5 font-mono text-sm outline-none transition-colors"
+          style={{
+            backgroundColor: 'var(--term-input-bg)',
+            border: '1px solid var(--term-input-border)',
+            color: 'var(--term-input-text)',
+          }}
         />
         <button
           onClick={handleSubmit}
           disabled={!input.trim()}
-          className="rounded-md bg-[#2a2000] px-3 py-1.5 text-sm text-[#ffb000] hover:bg-[#3a3000] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          className="rounded-md px-3 py-1.5 text-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          style={{
+            backgroundColor: 'var(--term-btn-bg)',
+            color: 'var(--term-btn-text)',
+          }}
         >
           Send
         </button>
