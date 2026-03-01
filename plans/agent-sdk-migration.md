@@ -22,12 +22,12 @@ The WebSocket protocol and all client code stay unchanged.
 
 ## Steps
 
-### Step 0: Install SDK
+### Step 0: Install SDK ✅
 ```bash
 bun add @anthropic-ai/claude-agent-sdk
 ```
 
-### Step 1: Rewrite `server/session.ts`
+### Step 1: Rewrite `server/session.ts` ✅
 **Full rewrite.** Replace Bun.spawn with SDK `query()`.
 
 - **MessageChannel class** — `AsyncIterable<SDKUserMessage>` with push/close. When empty, `next()` returns a Promise that resolves when a message is pushed.
@@ -37,7 +37,7 @@ bun add @anthropic-ai/claude-agent-sdk
 - **killSession(nodeId)** — calls `abortController.abort()`, `channel.close()`, `query.close()`.
 - **Remove:** PID file management, `cleanupStaleProcesses()`, `drainStderr()`, `getCleanEnv()`.
 
-### Step 2: Rewrite `server/stream-parser.ts` → `server/message-processor.ts`
+### Step 2: Rewrite `server/stream-parser.ts` → `server/message-processor.ts` ✅
 **Full rewrite.** Replace CLI JSON event parsing with typed SDK message handling.
 
 - **createMessageProcessor(nodeId)** → returns `{ processMessage(msg: SDKMessage), cleanup() }`
@@ -54,14 +54,14 @@ bun add @anthropic-ai/claude-agent-sdk
 
 - **Preserve:** idle timeout (2 min), PR URL extraction, file overlap tracking, stage transitions, auto-title. Reuse logic from current stream-parser.
 
-### Step 3: Update `server/index.ts`
+### Step 3: Update `server/index.ts` ✅
 **Targeted changes only.**
 
 - Update imports (new session.ts API is the same function signatures)
 - Remove `cleanupStaleProcesses()` import and startup call
 - Everything else stays the same — spawn/send_input/kill handlers already work with the same `spawnSession`/`sendInput`/`killSession` signatures
 
-### Step 4: Clean up
+### Step 4: Clean up ✅
 - Delete old `server/stream-parser.ts` (replaced by message-processor.ts)
 - Keep `server/cli-paths.ts` (still used by context-summary.ts and pr-tracker.ts)
 - Remove debug logging added during investigation
