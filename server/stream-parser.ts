@@ -313,6 +313,11 @@ export function createStreamParser(nodeId: string, callbacks: StreamCallbacks = 
         break;
       }
 
+      case 'system': {
+        // Internal CLI events (hook_started, hook_response, etc.) — ignore silently
+        break;
+      }
+
       default: {
         // Unknown event — log it for debugging
         lines.push(`[${event.type}] ${JSON.stringify(event).slice(0, 150)}`);

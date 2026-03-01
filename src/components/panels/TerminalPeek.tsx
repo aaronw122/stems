@@ -9,6 +9,8 @@ interface TerminalPeekProps {
   onSendInput: (text: string) => void;
 }
 
+const EMPTY_LINES: string[] = [];
+
 export function TerminalPeek({ nodeId, nodeTitle, onClose, onSendInput }: TerminalPeekProps) {
   const [input, setInput] = useState('');
   const [autoScroll, setAutoScroll] = useState(true);
@@ -16,11 +18,11 @@ export function TerminalPeek({ nodeId, nodeTitle, onClose, onSendInput }: Termin
   const prevLineCountRef = useRef(0);
 
   const converter = useMemo(
-    () => new AnsiToHtml({ fg: '#d4d4d4', bg: '#1a1a1a', newline: false }),
+    () => new AnsiToHtml({ fg: '#ffb000', bg: '#1a1a1a', newline: false }),
     [],
   );
 
-  const lines = useTerminal((s) => s.buffers.get(nodeId) ?? []);
+  const lines = useTerminal((s) => s.buffers.get(nodeId) ?? EMPTY_LINES);
 
   // Auto-scroll to bottom on new lines
   useEffect(() => {
@@ -36,7 +38,6 @@ export function TerminalPeek({ nodeId, nodeTitle, onClose, onSendInput }: Termin
   const handleScroll = useCallback(() => {
     if (!scrollRef.current) return;
     const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
-    // If user is within 40px of the bottom, re-enable auto-scroll
     const atBottom = scrollHeight - scrollTop - clientHeight < 40;
     setAutoScroll(atBottom);
   }, []);
@@ -60,33 +61,32 @@ export function TerminalPeek({ nodeId, nodeTitle, onClose, onSendInput }: Termin
   );
 
   return (
-    <div className="absolute top-0 right-0 bottom-0 z-40 flex w-[480px] flex-col border-l border-zinc-700 bg-[#1a1a1a] shadow-2xl">
-      {/* Header */}
-      <div className="flex items-center justify-between border-b border-zinc-700 px-4 py-3">
-        <div className="text-sm font-medium text-zinc-200 truncate">{nodeTitle}</div>
-        <button
-          onClick={onClose}
-          className="rounded p-1 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200 transition-colors"
-          aria-label="Close terminal"
-        >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <path
-              d="M4 4L12 12M12 4L4 12"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-            />
-          </svg>
-        </button>
+    <div className="absolute top-0 right-0 bottom-0 z-40 flex w-[480px] flex-col overflow-hidden rounded-l-lg bg-[#1a1a1a] shadow-2xl">
+      {/* Mac OS X-style title bar */}
+      <div className="terminal-titlebar flex items-center px-4 py-2.5 rounded-tl-lg">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onClose}
+            className="traffic-light traffic-light--red"
+            aria-label="Close terminal"
+          />
+          <span className="traffic-light traffic-light--yellow" />
+          <span className="traffic-light traffic-light--green" />
+        </div>
+        <div className="flex-1 text-center text-[13px] font-medium text-[#4a4a4a] truncate select-none">
+          {nodeTitle}
+        </div>
+        {/* Spacer to balance the traffic lights */}
+        <div className="w-[52px]" />
       </div>
 
       {/* Terminal output */}
       <div
         ref={scrollRef}
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto px-4 py-2"
+        className="flex-1 overflow-y-auto px-4 py-3"
       >
-        <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-5 text-zinc-300">
+        <pre className="terminal-glow whitespace-pre-wrap break-words font-mono text-xs leading-5 text-[#ffb000]">
           {lines.map((line, i) => (
             <div
               key={i}
@@ -94,7 +94,9 @@ export function TerminalPeek({ nodeId, nodeTitle, onClose, onSendInput }: Termin
             />
           ))}
           {lines.length === 0 && (
-            <span className="text-zinc-600">Waiting for output...</span>
+            <span className="text-[#7a5800]">
+              Waiting for output...<span className="terminal-cursor" />
+            </span>
           )}
         </pre>
       </div>
@@ -108,26 +110,26 @@ export function TerminalPeek({ nodeId, nodeTitle, onClose, onSendInput }: Termin
               scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
             }
           }}
-          className="mx-4 mb-1 rounded bg-zinc-700/80 px-2 py-1 text-xs text-zinc-400 hover:text-zinc-200 transition-colors"
+          className="mx-4 mb-1 rounded bg-[#2a2000]/80 px-2 py-1 text-xs text-[#ffb000]/60 hover:text-[#ffb000] transition-colors"
         >
           Scroll to bottom
         </button>
       )}
 
       {/* Input area */}
-      <div className="flex items-center gap-2 border-t border-zinc-700 px-4 py-3">
+      <div className="flex items-center gap-2 border-t border-[#3a3000] px-4 py-3">
         <input
           type="text"
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder="Send input to session..."
-          className="flex-1 rounded-md border border-zinc-600 bg-zinc-900 px-3 py-1.5 font-mono text-sm text-zinc-100 placeholder-zinc-500 outline-none focus:border-blue-500"
+          className="flex-1 rounded-md border border-[#5a4500] bg-[#111000] px-3 py-1.5 font-mono text-sm text-[#ffb000] placeholder-[#7a5800] outline-none focus:border-[#ffb000]"
         />
         <button
           onClick={handleSubmit}
           disabled={!input.trim()}
-          className="rounded-md bg-zinc-700 px-3 py-1.5 text-sm text-zinc-300 hover:bg-zinc-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          className="rounded-md bg-[#2a2000] px-3 py-1.5 text-sm text-[#ffb000] hover:bg-[#3a3000] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         >
           Send
         </button>

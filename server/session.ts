@@ -1,5 +1,5 @@
 import type { Subprocess } from 'bun';
-import { updateNode, broadcast } from './state.ts';
+import { updateNode, broadcast, broadcastTerminal } from './state.ts';
 import { createStreamParser } from './stream-parser.ts';
 import { CLAUDE_BIN } from './cli-paths.ts';
 
@@ -8,11 +8,18 @@ import { CLAUDE_BIN } from './cli-paths.ts';
 interface Session {
   process: Subprocess;
   nodeId: string;
+  interactive: boolean;
 }
 
 const sessions = new Map<string, Session>();
 
-const PID_FILE = 'weft-flow.pids';
+const PID_FILE = 'stems.pids';
+
+// ── Clean env — strip CLAUDECODE so child Claude processes don't refuse to start
+function getCleanEnv(): Record<string, string | undefined> {
+  const { CLAUDECODE, CLAUDE_CODE_ENTRYPOINT, ...clean } = process.env;
+  return clean;
+}
 
 // ── PID file management ──────────────────────────────────────────────
 
@@ -49,24 +56,34 @@ export async function spawnSession(
   prompt: string,
   appendSystemPrompt?: string,
 ): Promise<void> {
-  const args = [CLAUDE_BIN, '-p', '--output-format', 'stream-json', '--dangerously-skip-permissions'];
+  const interactive = !prompt;
+
+  // Always use -p with --verbose for stream-json output
+  const args = [CLAUDE_BIN, '-p', '--verbose', '--output-format', 'stream-json', '--dangerously-skip-permissions'];
+
+  // Interactive sessions use bidirectional stream-json
+  if (interactive) {
+    args.push('--input-format', 'stream-json');
+  }
 
   if (appendSystemPrompt) {
     args.push('--append-system-prompt', appendSystemPrompt);
   }
 
-  // Add the prompt as the final positional argument
-  args.push(prompt);
+  // One-shot mode: pass prompt as final positional arg
+  if (!interactive) {
+    args.push(prompt);
+  }
 
   const proc = Bun.spawn(args, {
     cwd: repoPath,
     stdout: 'pipe',
     stdin: 'pipe',
     stderr: 'pipe',
-    env: { ...process.env },
+    env: getCleanEnv(),
   });
 
-  sessions.set(nodeId, { process: proc, nodeId });
+  sessions.set(nodeId, { process: proc, nodeId, interactive });
 
   // Update PID file
   await writePidFile();
@@ -86,6 +103,11 @@ export async function spawnSession(
     });
   }
 
+  // Drain stderr and broadcast errors to terminal
+  if (proc.stderr) {
+    drainStderr(nodeId, proc.stderr);
+  }
+
   // Handle process exit
   proc.exited.then(async (code) => {
     sessions.delete(nodeId);
@@ -101,6 +123,26 @@ export async function spawnSession(
       }
     }
   });
+}
+
+// ── Drain stderr to terminal ────────────────────────────────────────
+
+async function drainStderr(nodeId: string, stream: ReadableStream<Uint8Array>): Promise<void> {
+  try {
+    const reader = stream.getReader();
+    const decoder = new TextDecoder();
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const text = decoder.decode(value, { stream: true }).trim();
+      if (text) {
+        console.error(`[session:${nodeId}] stderr: ${text}`);
+        broadcastTerminal(nodeId, [`[stderr] ${text}`]);
+      }
+    }
+  } catch {
+    // Stream closed
+  }
 }
 
 // ── Kill a session ───────────────────────────────────────────────────
@@ -141,9 +183,15 @@ export function sendInput(nodeId: string, text: string): void {
 
   const stdinStream = session.process.stdin;
   if (stdinStream && typeof stdinStream === 'object' && 'write' in stdinStream) {
-    // Bun's FileSink has a .write() method
     const sink = stdinStream as { write(data: Uint8Array | string): number };
-    sink.write(text + '\n');
+
+    if (session.interactive) {
+      // Interactive sessions use stream-json input format
+      const msg = JSON.stringify({ type: 'user_message', content: text });
+      sink.write(msg + '\n');
+    } else {
+      sink.write(text + '\n');
+    }
   }
 }
 

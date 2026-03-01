@@ -42,7 +42,8 @@ export async function summarizeContext(parentNodeId: string): Promise<string> {
 
 function runClaudeSummarize(prompt: string): { promise: Promise<string>; proc: ReturnType<typeof Bun.spawn> } {
   const args = [CLAUDE_BIN, '-p', '--dangerously-skip-permissions', '--', prompt];
-  const proc = Bun.spawn(args, { stdout: 'pipe', stderr: 'pipe', env: { ...process.env } });
+  const { CLAUDECODE, CLAUDE_CODE_ENTRYPOINT, ...cleanEnv } = process.env;
+  const proc = Bun.spawn(args, { stdout: 'pipe', stderr: 'pipe', env: cleanEnv });
 
   const promise = new Response(proc.stdout).text();
   return { promise, proc };

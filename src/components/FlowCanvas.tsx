@@ -104,6 +104,9 @@ export function FlowCanvas({ send, onSpawn }: FlowCanvasProps) {
       onNodeClick={onNodeClick}
       onNodeDragStop={handleNodeDragStop}
       defaultEdgeOptions={defaultEdgeOptions}
+      panOnScroll
+      zoomOnPinch
+      zoomOnScroll={false}
       colorMode="dark"
       fitView
       proOptions={{ hideAttribution: true }}

@@ -117,7 +117,9 @@ export const useGraph = create<GraphState>((set, get) => ({
 
         const newNodeIds = new Set([msg.node.id]);
         const { nodes, edges } = getLayoutedElements(allNodes, allEdges, newNodeIds);
-        set({ nodes, edges });
+        // Auto-select spawned feature/subtask nodes to open terminal
+        const autoSelect = msg.node.type === 'feature' || msg.node.type === 'subtask';
+        set({ nodes, edges, ...(autoSelect ? { selectedNodeId: msg.node.id } : {}) });
         break;
       }
 

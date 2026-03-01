@@ -293,6 +293,39 @@ const server = Bun.serve({
       }
     }
 
+    // Native folder picker via macOS osascript
+    if (url.pathname === '/api/pick-folder') {
+      try {
+        const proc = Bun.spawn(
+          ['osascript', '-e', 'POSIX path of (choose folder with prompt "Select a repository folder")'],
+          { stdout: 'pipe', stderr: 'pipe' },
+        );
+        // Read stdout/stderr concurrently with waiting for exit (Bun streams close after exit)
+        const [stdout, stderr, exitCode] = await Promise.all([
+          new Response(proc.stdout).text(),
+          new Response(proc.stderr).text(),
+          proc.exited,
+        ]);
+        if (exitCode !== 0) {
+          console.log(`[pick-folder] cancelled or error (code ${exitCode}): ${stderr.trim()}`);
+          return new Response(JSON.stringify({ cancelled: true }), {
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        const path = stdout.trim().replace(/\/$/, '');
+        console.log(`[pick-folder] selected: ${path}`);
+        return new Response(JSON.stringify({ path }), {
+          headers: { 'Content-Type': 'application/json' },
+        });
+      } catch (err) {
+        console.error('[pick-folder] error:', err);
+        return new Response(JSON.stringify({ error: String(err) }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+    }
+
     // Static file serving for production builds
     const filePath = url.pathname === '/' ? '/index.html' : url.pathname;
     const file = Bun.file(join('dist', filePath));
@@ -329,7 +362,7 @@ const server = Bun.serve({
   },
 });
 
-console.log(`weft-flow server listening on http://localhost:${server.port}`);
+console.log(`stems server listening on http://localhost:${server.port}`);
 
 // ── Graceful shutdown ────────────────────────────────────────────────
 

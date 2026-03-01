@@ -12,8 +12,6 @@ export default function App() {
   const doneList = useGraph((s) => s.doneList);
   const { send, isConnected } = useWebSocket(processMessage);
 
-  const [showAddRepo, setShowAddRepo] = useState(false);
-  const [repoPath, setRepoPath] = useState('');
   const [doneListOpen, setDoneListOpen] = useState(false);
 
   // ── PromptEditor state ──────────────────────────────────────────────
@@ -38,6 +36,23 @@ export default function App() {
     };
   }, [selectedNodeId, send]);
 
+  // ── Handlers ────────────────────────────────────────────────────────
+
+  const handleAddRepo = useCallback(async () => {
+    try {
+      console.log('[add-repo] Opening folder picker...');
+      const res = await fetch('/api/pick-folder');
+      const data = await res.json();
+      console.log('[add-repo] Response:', data);
+      if (data.path) {
+        console.log('[add-repo] Sending add_repo:', data.path);
+        send({ type: 'add_repo', path: data.path });
+      }
+    } catch (err) {
+      console.error('[add-repo] Failed:', err);
+    }
+  }, [send]);
+
   // ── Global keyboard shortcuts ───────────────────────────────────────
   useEffect(() => {
     function handleGlobalKeyDown(e: KeyboardEvent) {
@@ -50,51 +65,36 @@ export default function App() {
           setPromptEditor((prev) => ({ ...prev, isOpen: false }));
         } else if (selectedNodeId) {
           useGraph.getState().setSelectedNode(null);
-        } else if (showAddRepo) {
-          setShowAddRepo(false);
-          setRepoPath('');
         } else if (doneListOpen) {
           setDoneListOpen(false);
         }
       }
 
-      // Cmd+N: Open Add Repo dialog
+      // Cmd+N: Add Repo via folder picker
       if ((e.metaKey || e.ctrlKey) && e.key === 'n' && !isInputFocused) {
         e.preventDefault();
-        setShowAddRepo(true);
+        handleAddRepo();
       }
     }
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [promptEditor.isOpen, selectedNodeId, showAddRepo, doneListOpen]);
-
-  // ── Handlers ────────────────────────────────────────────────────────
-
-  const handleAddRepo = useCallback(() => {
-    if (repoPath.trim()) {
-      send({ type: 'add_repo', path: repoPath.trim() });
-      setRepoPath('');
-      setShowAddRepo(false);
-    }
-  }, [repoPath, send]);
-
-  const handleRepoKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === 'Enter') {
-        handleAddRepo();
-      } else if (e.key === 'Escape') {
-        setShowAddRepo(false);
-        setRepoPath('');
-      }
-    },
-    [handleAddRepo],
-  );
+  }, [promptEditor.isOpen, selectedNodeId, doneListOpen, handleAddRepo]);
 
   const handleSpawn = useCallback(
     (nodeId: string, spawnType: 'feature' | 'subtask') => {
-      setPromptEditor({ isOpen: true, parentNodeId: nodeId, spawnType });
+      if (spawnType === 'feature') {
+        // Features open an interactive Claude session immediately — no prompt editor
+        send({
+          type: 'spawn_feature',
+          parentId: nodeId,
+          title: 'New feature',
+          prompt: '',
+        });
+      } else {
+        setPromptEditor({ isOpen: true, parentNodeId: nodeId, spawnType });
+      }
     },
-    [],
+    [send],
   );
 
   const handlePromptSubmit = useCallback(
@@ -157,7 +157,7 @@ export default function App() {
         {/* Toolbar buttons */}
         <div className="absolute top-4 left-4 flex items-center gap-2">
           <button
-            onClick={() => setShowAddRepo(true)}
+            onClick={handleAddRepo}
             className="rounded-md bg-zinc-700 px-3 py-1.5 text-sm text-zinc-200 hover:bg-zinc-600 transition-colors"
           >
             + Add Repo
@@ -170,41 +170,6 @@ export default function App() {
             Re-layout
           </button>
         </div>
-
-        {/* Add Repo modal */}
-        {showAddRepo && (
-          <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-            <div className="w-[400px] rounded-lg bg-zinc-800 p-6 shadow-2xl">
-              <h2 className="mb-4 text-lg font-semibold text-zinc-100">Add Repository</h2>
-              <input
-                type="text"
-                value={repoPath}
-                onChange={(e) => setRepoPath(e.target.value)}
-                onKeyDown={handleRepoKeyDown}
-                placeholder="/path/to/your/repo"
-                className="mb-4 w-full rounded-md border border-zinc-600 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 outline-none focus:border-blue-500"
-                autoFocus
-              />
-              <div className="flex justify-end gap-2">
-                <button
-                  onClick={() => {
-                    setShowAddRepo(false);
-                    setRepoPath('');
-                  }}
-                  className="rounded-md px-3 py-1.5 text-sm text-zinc-400 hover:text-zinc-200 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleAddRepo}
-                  className="rounded-md bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-500 transition-colors"
-                >
-                  Add
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
 
         {/* Prompt Editor modal */}
         <PromptEditor

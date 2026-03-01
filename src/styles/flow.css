@@ -20,3 +20,48 @@ body {
 .react-flow__node {
   font-size: 12px;
 }
+
+/* ── Retro Terminal (Mac OS X style) ── */
+
+.terminal-titlebar {
+  background: linear-gradient(180deg, #e8e8e8 0%, #d0d0d0 50%, #c8c8c8 100%);
+  border-bottom: 1px solid #a0a0a0;
+}
+
+.traffic-light {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 0.5px solid rgba(0, 0, 0, 0.2);
+}
+
+.traffic-light--red {
+  background: radial-gradient(circle at 35% 35%, #ff8a80, #ff5f57 60%);
+}
+
+.traffic-light--yellow {
+  background: radial-gradient(circle at 35% 35%, #ffd76e, #febc2e 60%);
+}
+
+.traffic-light--green {
+  background: radial-gradient(circle at 35% 35%, #6fdb7e, #28c840 60%);
+}
+
+.traffic-light:hover {
+  filter: brightness(1.1);
+}
+
+.terminal-glow {
+  text-shadow: 0 0 4px rgba(255, 176, 0, 0.3);
+}
+
+@keyframes blink-cursor {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+.terminal-cursor::after {
+  content: '\2588';
+  color: #ffb000;
+  animation: blink-cursor 1s step-end infinite;
+}
