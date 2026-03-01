@@ -1,5 +1,5 @@
 import type { Subprocess } from 'bun';
-import { updateNode, broadcast, broadcastTerminal } from './state.ts';
+import { updateNode, getNode, broadcast, broadcastTerminal } from './state.ts';
 import { createStreamParser } from './stream-parser.ts';
 import { CLAUDE_BIN } from './cli-paths.ts';
 
@@ -122,12 +122,17 @@ export async function spawnSession(
     await writePidFile();
 
     if (code !== 0) {
-      const updated = updateNode(nodeId, {
-        nodeState: 'crashed',
-        errorInfo: { type: 'process_exit', message: `Process exited with code ${code}` },
-      });
-      if (updated) {
-        broadcast({ type: 'node_updated', node: updated });
+      // Guard: don't overwrite 'completed' with 'crashed' if the result event
+      // already transitioned the node (race between stream result and exit code)
+      const node = getNode(nodeId);
+      if (node && node.nodeState !== 'completed') {
+        const updated = updateNode(nodeId, {
+          nodeState: 'crashed',
+          errorInfo: { type: 'process_exit', message: `Process exited with code ${code}` },
+        });
+        if (updated) {
+          broadcast({ type: 'node_updated', node: updated });
+        }
       }
     }
   });

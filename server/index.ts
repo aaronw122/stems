@@ -16,6 +16,7 @@ import {
   unsubscribeTerminal,
   broadcast,
   clearTerminalBuffer,
+  clearHumanNeeded,
 } from './state.ts';
 import { spawnSession, killSession, killAllSessions, sendInput, cleanupStaleProcesses } from './session.ts';
 import { getAllActiveFiles, clearNode as clearOverlapNode } from './overlap-tracker.ts';
@@ -225,6 +226,14 @@ async function handleMessage(ws: ServerWebSocket<unknown>, raw: string): Promise
 
     case 'send_input': {
       const { nodeId, payload } = msg;
+
+      // Clear human-needed for question/permission responses (not errors —
+      // clearing an error state would resurrect a crashed node)
+      const inputNode = getNode(nodeId);
+      if (inputNode?.humanNeededType === 'question' || inputNode?.humanNeededType === 'permission') {
+        clearHumanNeeded(nodeId);
+      }
+
       switch (payload.kind) {
         case 'question_answer':
           sendInput(nodeId, payload.answer);
