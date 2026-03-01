@@ -60,6 +60,50 @@ function extractTitle(text: string): string | null {
   return title.length >= 3 ? title : null;
 }
 
+// ── Tool summary helpers ────────────────────────────────────────────
+
+function truncate(s: string, max: number): string {
+  return s.length > max ? s.slice(0, max) + '...' : s;
+}
+
+function shortenPath(p: string): string {
+  const segments = p.split('/');
+  return segments.length > 3 ? segments.slice(-3).join('/') : p;
+}
+
+function extractToolSummary(name: string, input: unknown): string {
+  if (!input || typeof input !== 'object') return '';
+  const inp = input as Record<string, unknown>;
+
+  switch (name) {
+    case 'Bash':
+      return truncate(String(inp.command ?? ''), 80);
+    case 'Read':
+    case 'Edit':
+    case 'Write':
+      return shortenPath(String(inp.file_path ?? inp.path ?? ''));
+    case 'Glob':
+      return String(inp.pattern ?? '');
+    case 'Grep':
+      return String(inp.pattern ?? '');
+    case 'Agent': {
+      return truncate(String(inp.description ?? inp.prompt ?? ''), 60);
+    }
+    case 'WebFetch':
+      return truncate(String(inp.url ?? ''), 80);
+    case 'WebSearch':
+      return truncate(String(inp.query ?? ''), 60);
+    case 'NotebookEdit':
+      return shortenPath(String(inp.notebook_path ?? ''));
+    case 'TaskCreate':
+      return truncate(String(inp.subject ?? ''), 60);
+    case 'TaskUpdate':
+      return inp.status ? `${inp.taskId} → ${inp.status}` : String(inp.taskId ?? '');
+    default:
+      return '';
+  }
+}
+
 // ── Create message processor ────────────────────────────────────────
 
 export function createMessageProcessor(nodeId: string) {
@@ -187,7 +231,12 @@ export function createMessageProcessor(nodeId: string) {
             messages.push({ type: 'human_needed', text: questionText });
             setHumanNeeded('question', input);
           } else {
-            messages.push({ type: 'tool_use', text: name, toolName: name });
+            // For Agent tool, use subagent_type as display name
+            const displayName = name === 'Agent'
+              ? String((input as Record<string, unknown>)?.subagent_type ?? name)
+              : name;
+            const summary = extractToolSummary(name, input);
+            messages.push({ type: 'tool_use', text: summary, toolName: displayName });
           }
 
           // Track file edits for overlap detection
