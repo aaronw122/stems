@@ -1,5 +1,6 @@
 import { updateNode, broadcast } from './state.ts';
 import { autoMoveIfComplete } from './completion.ts';
+import { GH_BIN } from './cli-paths.ts';
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -144,10 +145,11 @@ async function fetchPRState(
 ): Promise<'open' | 'merged' | 'closed' | null> {
   try {
     const proc = Bun.spawn(
-      ['gh', 'pr', 'view', String(number), '--repo', `${owner}/${repo}`, '--json', 'state,merged'],
+      [GH_BIN, 'pr', 'view', String(number), '--repo', `${owner}/${repo}`, '--json', 'state,merged'],
       {
         stdout: 'pipe',
         stderr: 'pipe',
+        env: { ...process.env },
       },
     );
 

@@ -1,4 +1,5 @@
 import { getTerminalLines, getNode } from './state.ts';
+import { CLAUDE_BIN } from './cli-paths.ts';
 
 const SUMMARIZE_TIMEOUT_MS = 15_000;
 
@@ -26,10 +27,10 @@ export async function summarizeContext(parentNodeId: string): Promise<string> {
   const prompt = `Summarize the following agent session output into a concise 2-3 sentence context block for a child task. Focus on: what was accomplished, what files were modified, current state. Output ONLY the summary, no preamble.\n\n<session>\n${sessionOutput}\n</session>`;
 
   try {
-    const summary = await withTimeout(
-      runClaudeSummarize(prompt),
-      SUMMARIZE_TIMEOUT_MS,
-    );
+    const { promise, proc } = runClaudeSummarize(prompt);
+    const summary = await withTimeout(promise, SUMMARIZE_TIMEOUT_MS, () => {
+      proc.kill();
+    });
     return summary.trim() || rawFallback;
   } catch (err) {
     console.error(`[context-summary] Summarization failed for ${parentNodeId}:`, err);
@@ -39,27 +40,18 @@ export async function summarizeContext(parentNodeId: string): Promise<string> {
   }
 }
 
-async function runClaudeSummarize(prompt: string): Promise<string> {
-  const proc = Bun.spawn(
-    ['claude', '-p', '--dangerously-skip-permissions', prompt],
-    {
-      stdout: 'pipe',
-      stderr: 'pipe',
-    },
-  );
+function runClaudeSummarize(prompt: string): { promise: Promise<string>; proc: ReturnType<typeof Bun.spawn> } {
+  const args = [CLAUDE_BIN, '-p', '--dangerously-skip-permissions', '--', prompt];
+  const proc = Bun.spawn(args, { stdout: 'pipe', stderr: 'pipe', env: { ...process.env } });
 
-  const exitCode = await proc.exited;
-  if (exitCode !== 0) {
-    const stderr = await new Response(proc.stderr).text();
-    throw new Error(`claude -p exited with code ${exitCode}: ${stderr.trim()}`);
-  }
-
-  return await new Response(proc.stdout).text();
+  const promise = new Response(proc.stdout).text();
+  return { promise, proc };
 }
 
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+function withTimeout<T>(promise: Promise<T>, ms: number, onTimeout?: () => void): Promise<T> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
+      onTimeout?.();
       reject(new Error(`Timed out after ${ms}ms`));
     }, ms);
 

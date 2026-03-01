@@ -1,6 +1,7 @@
 import type { Subprocess } from 'bun';
 import { updateNode, broadcast } from './state.ts';
 import { createStreamParser } from './stream-parser.ts';
+import { CLAUDE_BIN } from './cli-paths.ts';
 
 // ── Session tracking ─────────────────────────────────────────────────
 
@@ -48,7 +49,7 @@ export async function spawnSession(
   prompt: string,
   appendSystemPrompt?: string,
 ): Promise<void> {
-  const args = ['claude', '-p', '--output-format', 'stream-json', '--dangerously-skip-permissions'];
+  const args = [CLAUDE_BIN, '-p', '--output-format', 'stream-json', '--dangerously-skip-permissions'];
 
   if (appendSystemPrompt) {
     args.push('--append-system-prompt', appendSystemPrompt);
@@ -62,6 +63,7 @@ export async function spawnSession(
     stdout: 'pipe',
     stdin: 'pipe',
     stderr: 'pipe',
+    env: { ...process.env },
   });
 
   sessions.set(nodeId, { process: proc, nodeId });
