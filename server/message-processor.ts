@@ -194,8 +194,14 @@ export function createMessageProcessor(nodeId: string) {
     if (title) {
       titleExtracted = true;
       const node = getNode(nodeId);
-      // Only auto-title if the current title looks like a default (prompt truncation)
-      if (node && (node.title.endsWith('...') || node.title.length > 35)) {
+      // Auto-title logic:
+      // - Subtasks: overwrite prompt-truncated titles (ends with '...' or > 35 chars)
+      // - Features: only overwrite the default "New feature" (user input sets the real title)
+      const shouldAutoTitle = node && (
+        (node.type !== 'feature' && (node.title.endsWith('...') || node.title.length > 35)) ||
+        (node.type === 'feature' && node.title === 'New feature')
+      );
+      if (shouldAutoTitle) {
         const updated = updateNode(nodeId, { title });
         if (updated) {
           broadcast({ type: 'node_updated', node: updated });
