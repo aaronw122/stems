@@ -64,6 +64,7 @@ const EDGE_CURSORS: Record<ResizeEdge, string> = {
 export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendInput }: TerminalPeekProps) {
   const [input, setInput] = useState('');
   const [autoScroll, setAutoScroll] = useState(true);
+  const [fontSize, setFontSize] = useState(12);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -248,8 +249,25 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
         <div className="flex-1 text-center text-[13px] font-medium text-[#4a4a4a] truncate select-none">
           {nodeTitle}
         </div>
-        {/* Spacer to balance the traffic lights */}
-        <div className="w-[52px]" />
+        {/* Zoom controls */}
+        <div className="flex items-center gap-1" onPointerDown={(e) => e.stopPropagation()}>
+          <button
+            onClick={() => setFontSize((s) => Math.max(8, s - 1))}
+            className="w-5 h-5 flex items-center justify-center rounded text-xs opacity-50 hover:opacity-100 transition-opacity"
+            style={{ color: 'var(--term-text-dim)' }}
+            aria-label="Zoom out"
+          >
+            −
+          </button>
+          <button
+            onClick={() => setFontSize((s) => Math.min(24, s + 1))}
+            className="w-5 h-5 flex items-center justify-center rounded text-xs opacity-50 hover:opacity-100 transition-opacity"
+            style={{ color: 'var(--term-text-dim)' }}
+            aria-label="Zoom in"
+          >
+            +
+          </button>
+        </div>
       </div>
 
       {/* Terminal output — nowheel prevents React Flow panOnScroll */}
@@ -258,7 +276,7 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
         onScroll={handleScroll}
         className="nowheel flex-1 overflow-y-auto px-4 py-3"
       >
-        <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-5" style={{ color: 'var(--term-text)' }}>
+        <pre className="whitespace-pre-wrap break-words font-mono" style={{ color: 'var(--term-text)', fontSize: `${fontSize}px`, lineHeight: '1.6' }}>
           {messages.map((msg, i) => (
             <TerminalMessageRenderer key={i} message={msg} />
           ))}
