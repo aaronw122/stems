@@ -86,28 +86,41 @@ function formatDiffSide(content: string, prefix: string): string {
   return result;
 }
 
-// ── Tool summary extraction ─────────────────────────────────────────
+// ── Tool summary helpers ────────────────────────────────────────────
+
+function truncate(s: string, max: number): string {
+  return s.length > max ? s.slice(0, max) + '…' : s;
+}
+
+function shortenPath(p: string): string {
+  const segments = p.split('/');
+  return segments.length > 3 ? segments.slice(-3).join('/') : p;
+}
 
 function extractToolSummary(name: string, inp: Record<string, unknown>): string {
   switch (name) {
     case 'Read':
     case 'Edit':
     case 'Write':
-      return typeof inp.file_path === 'string' ? inp.file_path : '';
+      return shortenPath(String(inp.file_path ?? ''));
     case 'Bash':
-      return typeof inp.command === 'string'
-        ? inp.command.length > 120 ? inp.command.slice(0, 120) + '…' : inp.command
-        : '';
+      return truncate(String(inp.command ?? ''), 80);
     case 'Glob':
-      return typeof inp.pattern === 'string' ? inp.pattern : '';
+      return String(inp.pattern ?? '');
     case 'Grep':
-      return typeof inp.pattern === 'string' ? inp.pattern : '';
+      return String(inp.pattern ?? '');
     case 'Agent':
-      return typeof inp.description === 'string' ? inp.description : '';
+      return truncate(String(inp.description ?? inp.prompt ?? ''), 60);
     case 'WebFetch':
-      return typeof inp.url === 'string' ? inp.url : '';
+      return truncate(String(inp.url ?? ''), 80);
     case 'WebSearch':
-      return typeof inp.query === 'string' ? inp.query : '';
+      return truncate(String(inp.query ?? ''), 60);
+    case 'NotebookEdit':
+      return shortenPath(String(inp.notebook_path ?? ''));
+    case 'TaskCreate':
+      return truncate(String(inp.subject ?? ''), 60);
+    case 'TaskUpdate':
+      return inp.status ? `${inp.taskId} → ${inp.status}` : String(inp.taskId ?? '');
     default:
       return '';
   }
@@ -240,11 +253,12 @@ export function createMessageProcessor(nodeId: string) {
             messages.push({ type: 'human_needed', text: questionText });
             setHumanNeeded('question', input);
           } else {
-            const msg: TerminalMessage = { type: 'tool_use', text: '', toolName: name };
             const inp = input && typeof input === 'object' ? input as Record<string, unknown> : {};
-
-            // Extract a meaningful summary from each tool's input
-            msg.text = extractToolSummary(name, inp);
+            // For Agent tool, use subagent_type as display name
+            const displayName = name === 'Agent'
+              ? String(inp.subagent_type ?? name)
+              : name;
+            const msg: TerminalMessage = { type: 'tool_use', text: extractToolSummary(name, inp), toolName: displayName };
 
             // Attach diff data for Edit tools
             if (name === 'Edit') {
