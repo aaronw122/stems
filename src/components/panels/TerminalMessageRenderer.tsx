@@ -102,12 +102,24 @@ export function TerminalMessageRenderer({ message }: TerminalMessageRendererProp
               style={{ backgroundColor: 'var(--term-input-bg)', fontFamily: 'monospace' }}
             >
               {message.diffRemoved && (
-                <div style={{ color: 'var(--term-tool-error)', whiteSpace: 'pre-wrap' }}>
+                <div style={{
+                  backgroundColor: 'rgba(248, 81, 73, 0.15)',
+                  color: 'var(--term-text)',
+                  whiteSpace: 'pre-wrap',
+                  padding: '2px 4px',
+                  borderRadius: '2px',
+                }}>
                   {message.diffRemoved}
                 </div>
               )}
               {message.diffAdded && (
-                <div style={{ color: 'var(--term-tool-success)', whiteSpace: 'pre-wrap' }}>
+                <div style={{
+                  backgroundColor: 'rgba(63, 185, 80, 0.15)',
+                  color: 'var(--term-text)',
+                  whiteSpace: 'pre-wrap',
+                  padding: '2px 4px',
+                  borderRadius: '2px',
+                }}>
                   {message.diffAdded}
                 </div>
               )}
