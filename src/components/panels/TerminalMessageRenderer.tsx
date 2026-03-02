@@ -130,13 +130,9 @@ export function TerminalMessageRenderer({ message }: TerminalMessageRendererProp
       );
 
     case 'tool_result': {
-      const bulletColor = message.isSuccess === false
-        ? 'var(--term-tool-error)'
-        : 'var(--term-tool-success)';
-
       return (
-        <div className="my-0.5 flex items-start gap-1.5 pl-4">
-          <span style={{ color: bulletColor }}>&#9679;</span>
+        <div className="flex items-start gap-1.5 pl-5">
+          <span style={{ color: 'var(--term-text-dim)' }}>└</span>
           <span style={{ color: 'var(--term-text-dim)' }}>{message.text}</span>
         </div>
       );

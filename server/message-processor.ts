@@ -254,9 +254,12 @@ export function createMessageProcessor(nodeId: string) {
             setHumanNeeded('question', input);
           } else {
             const inp = input && typeof input === 'object' ? input as Record<string, unknown> : {};
-            // For Agent tool, use subagent_type as display name
+            // Map tool names to match Claude CLI display
             const displayName = name === 'Agent'
               ? String(inp.subagent_type ?? name)
+              : name === 'Edit' ? 'Update'
+              : name === 'WebSearch' ? 'Web Search'
+              : name === 'WebFetch' ? 'Fetch'
               : name;
             const msg: TerminalMessage = { type: 'tool_use', text: extractToolSummary(name, inp), toolName: displayName };
 
