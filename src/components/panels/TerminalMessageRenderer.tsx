@@ -19,6 +19,33 @@ function markdownToHtml(text: string): string {
     `<code style="color:#a2d2fb;background:rgba(255,255,255,0.08);padding:2px 4px;border-radius:3px">${code.trimEnd()}</code>`
   );
 
+  // 2b. Markdown tables (| header | ... | \n |---| ... | \n | data | ... |)
+  html = html.replace(
+    /^(\|.+\|)\n(\|[\s:|-]+\|)\n((?:\|.+\|\n?)+)/gm,
+    (_match, headerLine: string, _sep: string, bodyBlock: string) => {
+      const parseRow = (line: string) =>
+        line.split('|').slice(1, -1).map((c) => c.trim());
+
+      const headers = parseRow(headerLine);
+      const rows = bodyBlock.trim().split('\n').map(parseRow);
+
+      const th = headers
+        .map(
+          (h) =>
+            `<th style="padding:3px 8px;border:1px solid rgba(255,255,255,0.15);text-align:left;font-weight:600">${h}</th>`,
+        )
+        .join('');
+      const tbody = rows
+        .map(
+          (row) =>
+            `<tr>${row.map((c) => `<td style="padding:3px 8px;border:1px solid rgba(255,255,255,0.15)">${c}</td>`).join('')}</tr>`,
+        )
+        .join('');
+
+      return `<table style="border-collapse:collapse;margin:4px 0;white-space:normal"><thead><tr>${th}</tr></thead><tbody>${tbody}</tbody></table>`;
+    },
+  );
+
   // 3. Inline code (`...`)
   html = html.replace(
     /`([^`]+)`/g,
