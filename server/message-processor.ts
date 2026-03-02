@@ -86,6 +86,33 @@ function formatDiffSide(content: string, prefix: string): string {
   return result;
 }
 
+// ── Tool summary extraction ─────────────────────────────────────────
+
+function extractToolSummary(name: string, inp: Record<string, unknown>): string {
+  switch (name) {
+    case 'Read':
+    case 'Edit':
+    case 'Write':
+      return typeof inp.file_path === 'string' ? inp.file_path : '';
+    case 'Bash':
+      return typeof inp.command === 'string'
+        ? inp.command.length > 120 ? inp.command.slice(0, 120) + '…' : inp.command
+        : '';
+    case 'Glob':
+      return typeof inp.pattern === 'string' ? inp.pattern : '';
+    case 'Grep':
+      return typeof inp.pattern === 'string' ? inp.pattern : '';
+    case 'Agent':
+      return typeof inp.description === 'string' ? inp.description : '';
+    case 'WebFetch':
+      return typeof inp.url === 'string' ? inp.url : '';
+    case 'WebSearch':
+      return typeof inp.query === 'string' ? inp.query : '';
+    default:
+      return '';
+  }
+}
+
 // ── Create message processor ────────────────────────────────────────
 
 export function createMessageProcessor(nodeId: string) {
@@ -213,12 +240,14 @@ export function createMessageProcessor(nodeId: string) {
             messages.push({ type: 'human_needed', text: questionText });
             setHumanNeeded('question', input);
           } else {
-            const msg: TerminalMessage = { type: 'tool_use', text: name, toolName: name };
-            if (name === 'Edit' && input && typeof input === 'object') {
-              const inp = input as Record<string, unknown>;
-              if (typeof inp.file_path === 'string') {
-                msg.text = inp.file_path;
-              }
+            const msg: TerminalMessage = { type: 'tool_use', text: '', toolName: name };
+            const inp = input && typeof input === 'object' ? input as Record<string, unknown> : {};
+
+            // Extract a meaningful summary from each tool's input
+            msg.text = extractToolSummary(name, inp);
+
+            // Attach diff data for Edit tools
+            if (name === 'Edit') {
               if (typeof inp.old_string === 'string' && inp.old_string !== '') {
                 msg.diffRemoved = formatDiffSide(inp.old_string, '-');
               }
