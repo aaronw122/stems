@@ -1,280 +1,243 @@
-# Plan: Model & Context Remaining Display
+# Plan: Model & Context Display (Terminal Banner)
 
 ## Goal
 
-Show the active model name and context remaining percentage for each agent node, similar to the Claude Code status line:
+When a Claude session starts in the TerminalPeek mini-terminal, show a startup banner similar to Claude Code's native CLI banner — pixel art mascot, version, model, plan tier, working directory, and an upgrade nudge when applicable.
 
+Screenshot reference: the Claude Code CLI startup shows:
 ```
-Opus 4.6 | Context remaining: [████████░░] 26.0%
+🐷  Claude Code v2.1.63
+    Opus 4.6 · Claude Max
+    ~/Projects/musicMixer
 ```
+
+We want something similar as the first thing you see in the TerminalPeek when a session spins up.
+
+---
 
 ## Data Sources (Already Available)
 
-All the data we need is already flowing through the SDK message stream — just not being captured.
+The SDK `system/init` message (`SDKSystemMessage`) provides:
+- `claude_code_version: string` — e.g. `"2.1.63"`
+- `model: string` — e.g. `"claude-opus-4-6"`
 
-### Model Name
+The `initializationResult()` method provides:
+- `account.subscriptionType` — e.g. `"claude_max"`, `"claude_pro"`, `"free"`
 
-**Source:** `SDKSystemMessage` (type `system`, subtype `init`)
-- Field: `msg.model` → e.g. `"claude-opus-4-6"`
-- Arrives once at session start
-- Currently ignored in `handleSystemInit()` (only captures `session_id`)
+**Currently captured on init (session.ts:169-178):** `session_id`, `slashCommands`
+**Currently discarded:** version, model, account info
 
-```typescript
-// sdk.d.ts — SDKSystemMessage
-{
-  type: 'system';
-  subtype: 'init';
-  model: string;              // ← "claude-opus-4-6"
-  claude_code_version: string;
-  cwd: string;
-  tools: string[];
-  mcp_servers: { name: string; status: string }[];
-  permissionMode: PermissionMode;
-  fast_mode_state?: FastModeState;
-  session_id: string;
-  // ... more fields
-}
-```
-
-### Context Window Size + Per-Turn Token Usage
-
-**Source:** `SDKResultSuccess` (type `result`, subtype `success`)
-- Field: `msg.modelUsage` → `Record<string, ModelUsage>`
-- Each key is a model ID, value has `contextWindow`, token counts, cost
-- Arrives after every completed turn
-- Currently we only extract `total_cost_usd` and `usage.input_tokens`/`output_tokens`
-
-```typescript
-// sdk.d.ts — ModelUsage
-{
-  inputTokens: number;
-  outputTokens: number;
-  cacheReadInputTokens: number;
-  cacheCreationInputTokens: number;
-  webSearchRequests: number;
-  costUSD: number;
-  contextWindow: number;        // ← total context window size
-  maxOutputTokens: number;
-}
-```
-
-### Context Compaction Events
-
-**Source:** `SDKCompactBoundaryMessage` (type `system`, subtype `compact_boundary`)
-- Field: `msg.compact_metadata.pre_tokens` → token count before compaction
-- Currently in the ignored-messages list in `processMessage()`
-
-```typescript
-// sdk.d.ts — SDKCompactBoundaryMessage
-{
-  type: 'system';
-  subtype: 'compact_boundary';
-  compact_metadata: {
-    trigger: 'manual' | 'auto';
-    pre_tokens: number;         // ← how full context was before compaction
-  };
-  session_id: string;
-}
-```
+---
 
 ## Implementation
 
-### 1. Extend `WeftNode` type
+### Phase 1: Capture & relay session metadata
 
-**File:** `shared/types.ts`
+**server/session.ts** — On `system/init`, capture additional fields:
 
-Add three fields to `WeftNode`:
+```ts
+// In consumeTurn, alongside existing sessionId capture:
+if (msg.type === 'system' && msg.subtype === 'init') {
+  session.sessionId = msg.session_id;
+  session.meta = {
+    claudeCodeVersion: msg.claude_code_version,
+    model: msg.model,
+  };
 
-```typescript
-export interface WeftNode {
-  // ... existing fields ...
-
-  /** Model ID from session init (e.g. "claude-opus-4-6") */
-  model: string | null;
-
-  /** Total context window size for this model */
-  contextWindow: number | null;
-
-  /** Most recent turn's input_tokens — already includes the full conversation history, so this is a snapshot, not cumulative */
-  latestInputTokens: number;
-}
-```
-
-**Why `latestInputTokens` instead of a percentage:** Store the raw number, derive the percentage on the client. More flexible, avoids floating point drift from repeated division.
-
-**Note on token semantics:** Each turn's `usage.input_tokens` already includes the full conversation history (system prompt, all prior messages, tool definitions, etc.), not just the new user message. So the latest value is the best approximation of current context usage — no accumulation needed.
-
-### 2. Capture model from init message
-
-**File:** `server/message-processor.ts` → `handleSystemInit()`
-
-```typescript
-function handleSystemInit(msg: SDKSystemMessage): void {
-  const updated = updateNode(nodeId, {
-    sessionId: msg.session_id,
-    model: msg.model,         // ← add this
+  // Also grab account info from initializationResult
+  queryInstance.initializationResult().then((initResult) => {
+    session.slashCommands = initResult.commands;
+    session.meta.subscriptionType = initResult.account.subscriptionType;
+    // Broadcast updated meta to subscribers
   });
-  if (updated) {
-    broadcast({ type: 'node_updated', node: updated });
-  }
 }
 ```
 
-### 3. Capture context window from result message
+**shared/types.ts** — Add a new `TerminalMessageType`:
 
-**File:** `server/message-processor.ts` → `handleResultSuccess()`
+```ts
+export type TerminalMessageType =
+  | 'assistant_text'
+  | 'user_message'
+  | 'tool_use'
+  | 'tool_result'
+  | 'human_needed'
+  | 'system'
+  | 'session_banner'   // ← NEW
+  | 'error';
 
-Extract `contextWindow` from `modelUsage` using `node.model` as the key, and overwrite `latestInputTokens` with the current turn's value:
-
-```typescript
-function handleResultSuccess(msg: SDKResultSuccess): TerminalMessage[] {
-  // ... existing code ...
-
-  const node = getNode(nodeId);
-  if (node) {
-    // Extract contextWindow from modelUsage using the node's known model
-    let contextWindow = node.contextWindow;
-    if (msg.modelUsage && node.model && msg.modelUsage[node.model]) {
-      contextWindow = msg.modelUsage[node.model].contextWindow;
-    }
-
-    const updated = updateNode(nodeId, {
-      costUsd: node.costUsd + msg.total_cost_usd,
-      tokenUsage: {
-        input: node.tokenUsage.input + msg.usage.input_tokens,
-        output: node.tokenUsage.output + msg.usage.output_tokens,
-      },
-      contextWindow,
-      // Overwrite, don't accumulate — input_tokens already includes full conversation history
-      latestInputTokens: msg.usage.input_tokens,
-    });
-    if (updated) {
-      broadcast({ type: 'node_updated', node: updated });
-    }
-  }
-
-  return messages;
+// Banner-specific fields on TerminalMessage
+export interface TerminalMessage {
+  // ...existing fields...
+  bannerData?: {
+    claudeCodeVersion: string;
+    model: string;           // raw model ID like "claude-opus-4-6"
+    modelDisplayName: string; // pretty name like "Opus 4.6"
+    subscriptionType?: string;
+    cwd: string;
+    upgradeAvailable?: boolean;
+    latestVersion?: string;
+  };
 }
 ```
 
-**Known gap:** Fast mode can switch models mid-session, which would change the primary model key in `modelUsage`. When that happens, `node.model` should be updated to the new primary model so the keyed lookup stays correct. Deferred to a follow-up.
+**server/message-processor.ts** — Emit a `session_banner` message from `handleSystemInit`:
 
-### 4. Handle compact_boundary messages
-
-**File:** `server/message-processor.ts` → `processMessage()`
-
-When compaction happens, `pre_tokens` tells us how full the context was. After compaction, the context is significantly smaller. Since we use `latestInputTokens` (overwritten each turn, not accumulated), the next `SDKResultSuccess` will automatically reflect the reduced context size.
-
-Simplest approach: emit a terminal message noting compaction, and let the next result's `input_tokens` naturally reflect the smaller context.
-
-```typescript
-case 'system': {
-  if ('subtype' in msg && msg.subtype === 'init') {
-    handleSystemInit(msg as SDKSystemMessage);
-  } else if ('subtype' in msg && msg.subtype === 'compact_boundary') {
-    // Context was compacted — next result's input_tokens will reflect the reduced context
-    // Emit a terminal message so the user knows
-    const compactMsg = msg as SDKCompactBoundaryMessage;
-    broadcastTerminal(nodeId, [{
-      type: 'system',
-      text: `Context compacted (was ${compactMsg.compact_metadata.pre_tokens.toLocaleString()} tokens)`,
-    }]);
-  }
-  break;
+```ts
+function handleSystemInit(msg: SDKSystemMessage): TerminalMessage[] {
+  // existing: updateNode with sessionId
+  return [{
+    type: 'session_banner',
+    text: '',
+    bannerData: {
+      claudeCodeVersion: msg.claude_code_version,
+      model: msg.model,
+      modelDisplayName: prettyModelName(msg.model),
+      cwd: msg.cwd,
+    },
+  }];
 }
 ```
 
-### 5. Model name display mapping
-
-Map model IDs to human-readable names for the UI:
-
-```typescript
-// shared/model-display.ts (or inline in a component)
-const MODEL_DISPLAY_NAMES: Record<string, string> = {
-  'claude-opus-4-6': 'Opus 4.6',
-  'claude-sonnet-4-6': 'Sonnet 4.6',
-  'claude-sonnet-4-5-20250514': 'Sonnet 4.5',
-  'claude-haiku-4-5-20251001': 'Haiku 4.5',
-};
-
-export function getModelDisplayName(modelId: string): string {
-  if (MODEL_DISPLAY_NAMES[modelId]) return MODEL_DISPLAY_NAMES[modelId];
-  // Fallback: parse the ID into something readable
+Model name mapping helper:
+```ts
+function prettyModelName(model: string): string {
   // "claude-opus-4-6" → "Opus 4.6"
-  const match = modelId.match(/claude-(\w+)-(\d+)-(\d+)/);
-  if (match) {
-    const [, family, major, minor] = match;
-    return `${family.charAt(0).toUpperCase() + family.slice(1)} ${major}.${minor}`;
+  // "claude-sonnet-4-6" → "Sonnet 4.6"
+  // "claude-haiku-4-5-20251001" → "Haiku 4.5"
+  const match = model.match(/claude-(\w+)-(\d+)-(\d+)/);
+  if (!match) return model;
+  const [, family, major, minor] = match;
+  return `${family.charAt(0).toUpperCase() + family.slice(1)} ${major}.${minor}`;
+}
+```
+
+### Phase 2: Render the banner in TerminalPeek
+
+**src/components/panels/TerminalMessageRenderer.tsx** — Add a `session_banner` case:
+
+```tsx
+case 'session_banner': {
+  const b = message.bannerData!;
+  const planLabel = formatPlan(b.subscriptionType); // "Max" | "Pro" | "Free" | ""
+  return (
+    <div className="terminal-banner">
+      <div className="terminal-banner-mascot">
+        {/* Pixel art — small inline SVG or CSS grid of colored squares */}
+      </div>
+      <div className="terminal-banner-info">
+        <div className="terminal-banner-title">
+          Claude Code v{b.claudeCodeVersion}
+        </div>
+        <div className="terminal-banner-meta">
+          {b.modelDisplayName}{planLabel && ` · Claude ${planLabel}`}
+        </div>
+        <div className="terminal-banner-cwd">
+          {b.cwd}
+        </div>
+        {b.upgradeAvailable && (
+          <div className="terminal-banner-upgrade">
+            ↑ v{b.latestVersion} available — run `claude update`
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+```
+
+**src/styles/flow.css** — Banner styling:
+
+```css
+.terminal-banner {
+  display: flex;
+  gap: 12px;
+  padding: 8px 0 12px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--term-input-border);
+}
+
+.terminal-banner-mascot {
+  /* 8x5 grid of colored CSS squares matching Claude's pixel pig */
+  display: grid;
+  grid-template-columns: repeat(8, 6px);
+  grid-template-rows: repeat(5, 6px);
+  gap: 1px;
+  flex-shrink: 0;
+}
+
+.terminal-banner-title {
+  font-weight: 600;
+  color: var(--term-text);
+}
+
+.terminal-banner-meta {
+  color: var(--term-text-dim);
+  font-size: 0.9em;
+}
+
+.terminal-banner-cwd {
+  color: var(--term-text-dim);
+  font-size: 0.9em;
+}
+
+.terminal-banner-upgrade {
+  color: var(--term-tool-error);
+  font-size: 0.85em;
+  margin-top: 2px;
+}
+```
+
+### Phase 3: Upgrade detection
+
+Two options (in order of preference):
+
+**Option A: npm registry check (server-side, simple)**
+On server startup (once), fetch the latest published version:
+```ts
+// server/version-check.ts
+let latestVersion: string | null = null;
+
+export async function checkForUpdate(currentVersion: string): Promise<{available: boolean; latest: string}> {
+  if (!latestVersion) {
+    try {
+      const res = await fetch('https://registry.npmjs.org/@anthropic-ai/claude-code/latest');
+      const data = await res.json();
+      latestVersion = data.version;
+    } catch {
+      return { available: false, latest: currentVersion };
+    }
   }
-  return modelId;
+  return {
+    available: latestVersion !== currentVersion && latestVersion !== null,
+    latest: latestVersion ?? currentVersion,
+  };
 }
 ```
 
-### 6. Frontend display
+Inject the result into `bannerData` before broadcasting. Cache it — only check once per server lifecycle.
 
-Two places to show this information:
+**Option B: Compare against a pinned known-good version**
+Simpler but requires manual updates. Not recommended.
 
-#### a) On the node card itself (compact)
+---
 
-Add a small status line below existing node info showing model + context bar:
-
-```
-Opus 4.6 | ████████░░ 26%
-```
-
-This should be subtle — small text, muted colors. Only appears after the init message sets the model.
-
-#### b) In the detail/terminal panel (expanded)
-
-Show full stats when a node's terminal panel is open:
-- Model name
-- Context bar with percentage
-- Token breakdown (input / output / cache)
-- Cost
-
-### 7. Initialize defaults
-
-**File:** wherever nodes are created (likely `server/state.ts` or `server/index.ts`)
-
-New nodes should initialize with:
-
-```typescript
-model: null,
-contextWindow: null,
-latestInputTokens: 0,
-```
-
-## Context Remaining Calculation
-
-On the client side:
-
-```typescript
-function contextRemainingPercent(node: WeftNode): number | null {
-  if (!node.contextWindow || !node.latestInputTokens) return null;
-  const remaining = Math.max(0, node.contextWindow - node.latestInputTokens) / node.contextWindow;
-  return Math.round(remaining * 1000) / 10; // one decimal place
-}
-```
-
-**Caveat:** This is an approximation. `latestInputTokens` includes the full conversation history but doesn't account for output tokens still in the response buffer or cache token nuances. It should track directionally with what Claude Code shows in its own status line, but may not match exactly.
-
-**Future improvements:**
-- Use `modelUsage[model].inputTokens` (per-model) instead of `usage.input_tokens` (aggregate across models) for multi-model sessions
-- Track `cacheReadInputTokens` + `cacheCreationInputTokens` for a more precise context usage picture
-
-## Files to Change
+## Files Changed
 
 | File | Change |
 |------|--------|
-| `shared/types.ts` | Add `model`, `contextWindow`, `latestInputTokens` to `WeftNode` |
-| `server/message-processor.ts` | Capture model from init, contextWindow from result, handle compact_boundary |
-| `server/state.ts` (or wherever nodes are created) | Initialize new fields |
-| `src/hooks/useGraph.ts` | Bump `NODE_HEIGHT` / `SUBTASK_HEIGHT` to accommodate new status line |
-| `src/components/nodes/*` | Add model + context bar to node cards |
-| `src/components/panels/*` | Add expanded stats to terminal panel |
-| `shared/model-display.ts` (new) | Model ID → display name mapping |
+| `shared/types.ts` | Add `session_banner` type, `bannerData` field |
+| `server/session.ts` | Capture version/model/account from init |
+| `server/message-processor.ts` | Emit `session_banner` message, add `prettyModelName` helper |
+| `server/version-check.ts` | **NEW** — npm registry latest version check |
+| `src/components/panels/TerminalMessageRenderer.tsx` | Render banner |
+| `src/styles/flow.css` | Banner styles |
 
-## Open Questions
+---
 
-1. **Where on the node card?** The node cards are already dense. Need to decide if model/context goes on the card face or only in the expanded panel.
-2. **Context bar style?** Simple percentage text, progress bar, or color-coded (green → yellow → red)?
+## Scope Notes
+
+- The pixel art mascot can be a simple CSS grid (no image assets needed) — or we skip it for v1 and just show the text info
+- The banner replaces the current "Waiting for output..." placeholder as the first thing you see
+- `subscriptionType` arrives async (from `initializationResult`) — banner renders immediately with version/model, then updates with plan info when it arrives (or we wait the ~100ms for both)
+- Upgrade check is non-blocking and cached — zero impact on session startup time
