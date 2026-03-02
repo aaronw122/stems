@@ -2,8 +2,10 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import { useTerminal } from '../../hooks/useTerminal.ts';
 import { useFloatingWindow } from '../../hooks/useFloatingWindow.ts';
 import { useGraph } from '../../hooks/useGraph.ts';
+import { useAutocomplete } from '../../hooks/useAutocomplete.ts';
 import type { TerminalMessage, WeftNode } from '../../../shared/types.ts';
 import { TerminalMessageRenderer } from './TerminalMessageRenderer.tsx';
+import { AutocompleteDropdown } from './AutocompleteDropdown.tsx';
 
 // ── Thinking indicator ──────────────────────────────────────────────
 
@@ -84,6 +86,8 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
     RESIZE_HANDLE_SIZE,
   } = useFloatingWindow(containerRef);
 
+  const autocomplete = useAutocomplete(nodeId);
+
   const messages = useTerminal((s) => s.buffers.get(nodeId) ?? EMPTY_MESSAGES);
 
   // Get the node state to show thinking indicator
@@ -154,14 +158,57 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
     }
   }, [input, onSendInput]);
 
+  // Apply an autocomplete acceptance result to the textarea
+  const applyAcceptance = useCallback(
+    (result: { newValue: string; newCursorPosition: number }) => {
+      setInput(result.newValue);
+      const pos = result.newCursorPosition;
+      requestAnimationFrame(() => {
+        const el = inputRef.current;
+        if (el) {
+          el.setSelectionRange(pos, pos);
+          // Also re-trigger auto-resize for the new value
+          el.style.height = 'auto';
+          el.style.height = `${el.scrollHeight}px`;
+        }
+      });
+    },
+    [],
+  );
+
+  // Handle autocomplete item click: set selected index, then accept
+  const handleAutocompleteItemClick = useCallback(
+    (index: number) => {
+      autocomplete.onItemClick(index);
+      const result = autocomplete.accept();
+      if (result) applyAcceptance(result);
+      // Re-focus the textarea after clicking a dropdown item
+      requestAnimationFrame(() => inputRef.current?.focus());
+    },
+    [autocomplete, applyAcceptance],
+  );
+
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
+      // Delegate to autocomplete first — if it consumed the event, handle acceptance
+      const consumed = autocomplete.onKeyDown(e);
+      if (consumed) {
+        // Tab or Enter with highlighted item — accept the selection
+        if (e.key === 'Tab' || e.key === 'Enter') {
+          const result = autocomplete.accept();
+          if (result) applyAcceptance(result);
+        }
+        // Escape, ArrowUp, ArrowDown — already handled by the hook
+        return;
+      }
+
+      // Existing Enter-to-submit logic
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         handleSubmit();
       }
     },
-    [handleSubmit],
+    [autocomplete, applyAcceptance, handleSubmit],
   );
 
   // Stop pointer events from reaching the canvas
@@ -177,7 +224,7 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
     if (!root) return;
 
     const focusable = root.querySelectorAll<HTMLElement>(
-      'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
     );
     if (focusable.length === 0) return;
 
@@ -331,18 +378,40 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
           ref={inputRef}
           value={input}
           onChange={(e) => {
-            setInput(e.target.value);
+            const value = e.target.value;
+            // Read cursor position BEFORE DOM mutations (auto-resize)
+            const cursorPos = e.target.selectionStart ?? value.length;
+            setInput(value);
             // Auto-resize
             const el = e.target;
             el.style.height = 'auto';
             el.style.height = `${el.scrollHeight}px`;
+            // Notify autocomplete
+            autocomplete.onInputChange(value, cursorPos);
           }}
           onKeyDown={handleKeyDown}
           rows={1}
           className="flex-1 resize-none bg-transparent font-mono text-sm leading-5 outline-none"
           style={{ color: 'var(--term-input-text)' }}
+          role="combobox"
+          aria-expanded={autocomplete.isOpen}
+          aria-activedescendant={autocomplete.activeDescendantId ?? undefined}
+          aria-controls={autocomplete.listboxId}
         />
       </div>
+
+      {/* Autocomplete dropdown (portal-rendered above the textarea) */}
+      <AutocompleteDropdown
+        items={autocomplete.items}
+        selectedIndex={autocomplete.selectedIndex}
+        triggerType={autocomplete.triggerType}
+        isOpen={autocomplete.isOpen}
+        onItemClick={handleAutocompleteItemClick}
+        onItemHover={autocomplete.onItemHover}
+        activeDescendantId={autocomplete.activeDescendantId}
+        listboxId={autocomplete.listboxId}
+        textareaRef={inputRef}
+      />
     </div>
   );
 }
