@@ -65,7 +65,7 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
   const [input, setInput] = useState('');
   const [autoScroll, setAutoScroll] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const prevMessageCountRef = useRef(0);
 
@@ -290,36 +290,32 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
         </button>
       )}
 
-      {/* Input area */}
+      {/* Input area — terminal-style with chevron */}
       <div
-        className="flex items-center gap-2 px-4 py-3"
+        className="flex items-start gap-2 px-4 py-2"
         style={{ borderTop: '1px solid var(--term-input-border)' }}
       >
-        <input
-          ref={inputRef}
-          type="text"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="Send input to session..."
-          className="flex-1 rounded-md px-3 py-1.5 font-mono text-sm outline-none transition-colors"
-          style={{
-            backgroundColor: 'var(--term-input-bg)',
-            border: '1px solid var(--term-input-border)',
-            color: 'var(--term-input-text)',
-          }}
-        />
-        <button
-          onClick={handleSubmit}
-          disabled={!input.trim()}
-          className="rounded-md px-3 py-1.5 text-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-          style={{
-            backgroundColor: 'var(--term-btn-bg)',
-            color: 'var(--term-btn-text)',
-          }}
+        <span
+          className="font-mono text-sm leading-5 select-none pt-px"
+          style={{ color: 'var(--term-tool-success)' }}
         >
-          Send
-        </button>
+          ❯
+        </span>
+        <textarea
+          ref={inputRef}
+          value={input}
+          onChange={(e) => {
+            setInput(e.target.value);
+            // Auto-resize
+            const el = e.target;
+            el.style.height = 'auto';
+            el.style.height = `${el.scrollHeight}px`;
+          }}
+          onKeyDown={handleKeyDown}
+          rows={1}
+          className="flex-1 resize-none bg-transparent font-mono text-sm leading-5 outline-none"
+          style={{ color: 'var(--term-input-text)' }}
+        />
       </div>
     </div>
   );
