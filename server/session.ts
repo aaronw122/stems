@@ -38,7 +38,7 @@ export async function generateFeatureTitle(
 ): Promise<void> {
   try {
     const titleQuery = query({
-      prompt: `In 3-6 words, name the feature or task described below. Output ONLY the title, nothing else. No quotes, no punctuation, no explanation.\n\n${userMessage}`,
+      prompt: `In exactly 2-3 words, name the feature or task described below. Output ONLY the title, nothing else. No quotes, no punctuation, no explanation. Maximum 3 words.\n\n${userMessage}`,
       options: {
         cwd: repoPath,
         permissionMode: 'bypassPermissions',
