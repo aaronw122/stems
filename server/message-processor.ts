@@ -394,10 +394,8 @@ export function createMessageProcessor(nodeId: string) {
   function processMessage(msg: SDKMessage): void {
     const messages: TerminalMessage[] = [];
 
-    // Log non-streaming messages; stream_event is too frequent for default logging
-    if (msg.type !== 'stream_event') {
-      console.log(`[msg-processor:${nodeId}] message: ${msg.type}`);
-    }
+    // Debug logging — uncomment to trace all message types:
+    // console.log(`[msg-processor:${nodeId}] message: ${msg.type}`);
 
     // Reset idle timer on any message
     resetIdleTimer();
