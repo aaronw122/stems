@@ -99,7 +99,7 @@ export function TerminalMessageRenderer({ message }: TerminalMessageRendererProp
           {(message.diffRemoved || message.diffAdded) && (
             <div
               className="ml-5 mt-1 rounded px-2 py-1 text-xs leading-4"
-              style={{ backgroundColor: 'rgba(255,255,255,0.03)' }}
+              style={{ backgroundColor: 'var(--term-input-bg)', fontFamily: 'monospace' }}
             >
               {message.diffRemoved && (
                 <div style={{ color: 'var(--term-tool-error)', whiteSpace: 'pre-wrap' }}>

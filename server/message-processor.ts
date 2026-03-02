@@ -66,16 +66,22 @@ const DIFF_MAX_LINES = 20;
 const DIFF_MAX_CHARS = 2000;
 
 function formatDiffSide(content: string, prefix: string): string {
-  let text = content;
-  if (text.length > DIFF_MAX_CHARS) {
-    text = text.slice(0, DIFF_MAX_CHARS);
-  }
   const allLines = content.split('\n');
-  const lines = text.split('\n');
-  const display = lines.length > DIFF_MAX_LINES ? lines.slice(0, DIFF_MAX_LINES) : lines;
+  const display = allLines.length > DIFF_MAX_LINES ? allLines.slice(0, DIFF_MAX_LINES) : allLines;
   let result = display.map(l => `${prefix} ${l}`).join('\n');
-  if (allLines.length > display.length) {
-    result += `\n${prefix} ... +${allLines.length - display.length} more lines`;
+  let charTrimmed = false;
+  if (result.length > DIFF_MAX_CHARS) {
+    charTrimmed = true;
+    result = result.slice(0, DIFF_MAX_CHARS);
+    // Trim to last complete line to avoid garbled partial lines
+    const lastNewline = result.lastIndexOf('\n');
+    if (lastNewline > 0) result = result.slice(0, lastNewline);
+  }
+  const displayedCount = result.split('\n').length;
+  if (allLines.length > displayedCount) {
+    result += `\n${prefix} ... +${allLines.length - displayedCount} more lines`;
+  } else if (charTrimmed) {
+    result += `\n${prefix} ... (truncated)`;
   }
   return result;
 }
@@ -210,7 +216,10 @@ export function createMessageProcessor(nodeId: string) {
             const msg: TerminalMessage = { type: 'tool_use', text: name, toolName: name };
             if (name === 'Edit' && input && typeof input === 'object') {
               const inp = input as Record<string, unknown>;
-              if (typeof inp.old_string === 'string') {
+              if (typeof inp.file_path === 'string') {
+                msg.text = inp.file_path;
+              }
+              if (typeof inp.old_string === 'string' && inp.old_string !== '') {
                 msg.diffRemoved = formatDiffSide(inp.old_string, '-');
               }
               if (typeof inp.new_string === 'string') {
