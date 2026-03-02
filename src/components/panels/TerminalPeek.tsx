@@ -432,32 +432,6 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
         </button>
       )}
 
-      {/* Status bar — model + cwd + context remaining (matches Claude CLI) */}
-      {bannerData && (
-        <div className="terminal-status-bar">
-          <span className="terminal-status-model">
-            {bannerData.modelDisplayName}
-          </span>
-          {' in '}
-          <span className="terminal-status-cwd">
-            {bannerData.cwd}
-          </span>
-          {contextPercent !== null && (
-            <>
-              <span className="terminal-status-divider"> | </span>
-              <span className="terminal-status-context">
-                Context remaining:{' '}
-                <span className="terminal-context-bar">
-                  {'█'.repeat(Math.round(contextPercent / 5))}
-                  {'░'.repeat(20 - Math.round(contextPercent / 5))}
-                </span>
-                {' '}{contextPercent.toFixed(1)}%
-              </span>
-            </>
-          )}
-        </div>
-      )}
-
       {/* Input area — terminal-style with chevron */}
       <div
         className="flex items-start gap-2 px-4 py-2"
@@ -527,6 +501,32 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
           listboxId={autocomplete.listboxId}
           textareaRef={inputRef}
         />
+      )}
+
+      {/* Status bar — below input, matches Claude CLI bottom bar */}
+      {bannerData && (
+        <div className="terminal-status-bar">
+          <span className="terminal-status-model">
+            {bannerData.modelDisplayName}
+          </span>
+          {' in '}
+          <span className="terminal-status-cwd">
+            {bannerData.cwd}
+          </span>
+          {contextPercent !== null && (
+            <>
+              <span className="terminal-status-divider"> | </span>
+              <span className="terminal-status-context">
+                Context remaining:{' '}
+                <span className="terminal-context-bar">
+                  {'█'.repeat(Math.round(contextPercent / 5))}
+                  {'░'.repeat(20 - Math.round(contextPercent / 5))}
+                </span>
+                {' '}{contextPercent.toFixed(1)}%
+              </span>
+            </>
+          )}
+        </div>
       )}
     </div>
   );
