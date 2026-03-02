@@ -28,13 +28,13 @@ interface FeatureNodeData extends WeftNode {
   onUpdateTitle?: (nodeId: string, title: string) => void;
 }
 
-export function FeatureNode({ data }: NodeProps) {
+export function FeatureNode({ data, selected }: NodeProps) {
   const node = data as unknown as FeatureNodeData;
   const borderClass = STATE_STYLES[node.nodeState] ?? STATE_STYLES.idle;
   const dotClass = STATE_DOT[node.nodeState] ?? STATE_DOT.idle;
 
   return (
-    <div className={`min-w-[180px] rounded-lg border-l-4 ${borderClass} bg-zinc-800 px-4 py-3 shadow-lg`}>
+    <div className={`min-w-[180px] rounded-lg border-l-4 ${borderClass} bg-zinc-800 px-4 py-3 shadow-lg ${selected ? 'ring-2 ring-blue-500/50' : ''}`}>
       <div className="flex items-center gap-2">
         <div className={`h-2.5 w-2.5 rounded-full ${dotClass} shrink-0`} />
         <EditableTitle
