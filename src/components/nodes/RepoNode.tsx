@@ -7,7 +7,7 @@ interface RepoNodeData extends WeftNode {
   onDelete?: (nodeId: string) => void;
 }
 
-export function RepoNode({ data }: NodeProps) {
+export function RepoNode({ data, selected }: NodeProps) {
   const node = data as unknown as RepoNodeData;
   const repoPath = node.repoPath ?? '';
 
@@ -17,7 +17,7 @@ export function RepoNode({ data }: NodeProps) {
   const branch = node.branch ?? 'main';
 
   return (
-    <div className="group min-w-[200px] rounded-lg border-l-4 border-l-green-500 bg-zinc-800 px-4 py-3 shadow-lg">
+    <div className={`group min-w-[200px] rounded-lg border-l-4 border-l-green-500 bg-zinc-800 px-4 py-3 shadow-lg ${selected ? 'ring-2 ring-green-500/50' : ''}`}>
       <div className="flex items-center justify-between">
         <div className="text-sm font-semibold text-zinc-100">{displayPath || 'Unknown Repo'}</div>
         <button
