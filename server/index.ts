@@ -230,9 +230,12 @@ async function handleMessage(ws: ServerWebSocket<unknown>, raw: string): Promise
       clearTerminalBuffer(msg.nodeId);
       const removed = removeNode(msg.nodeId);
       if (removed) {
-        addToDoneList(removed);
+        // Phantom subagent nodes are transient — don't persist them to the done list
+        if (!removed.isPhantomSubagent) {
+          addToDoneList(removed);
+          broadcast({ type: 'done_list_updated', doneList: getDoneList() });
+        }
         broadcast({ type: 'node_removed', nodeId: msg.nodeId });
-        broadcast({ type: 'done_list_updated', doneList: getDoneList() });
       }
       break;
     }
@@ -341,7 +344,20 @@ async function handleMessage(ws: ServerWebSocket<unknown>, raw: string): Promise
 const savedWorkspace = await loadWorkspace();
 if (savedWorkspace) {
   hydrateState(savedWorkspace);
-  console.log(`[startup] Restored workspace: ${savedWorkspace.nodes.length} node(s), ${savedWorkspace.doneList.length} done`);
+
+  // Sweep out phantom subagent nodes that leaked into persistence via updateNode.
+  // These are transient visualization nodes that should not survive a restart.
+  const phantomIds = getAllNodes()
+    .filter((n) => n.isPhantomSubagent)
+    .map((n) => n.id);
+  for (const id of phantomIds) {
+    removeNode(id);
+  }
+  if (phantomIds.length > 0) {
+    console.log(`[startup] Cleaned up ${phantomIds.length} phantom subagent node(s)`);
+  }
+
+  console.log(`[startup] Restored workspace: ${savedWorkspace.nodes.length - phantomIds.length} node(s), ${savedWorkspace.doneList.length} done`);
 } else {
   console.log('[startup] No saved workspace found, starting fresh');
 }

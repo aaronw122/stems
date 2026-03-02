@@ -1,6 +1,6 @@
-import { broadcastTerminal, updateNode, getNode, broadcast, clearHumanNeeded } from './state.ts';
+import { broadcastTerminal, updateNode, getNode, broadcast, clearHumanNeeded, addPhantomNode, removeNode } from './state.ts';
 import { trackFileEdit } from './overlap-tracker.ts';
-import type { DisplayStage, TerminalMessage } from '../shared/types.ts';
+import type { DisplayStage, TerminalMessage, WeftNode, WeftEdge } from '../shared/types.ts';
 import { extractPRUrls, trackPR } from './pr-tracker.ts';
 // Note: autoMoveIfComplete is called by session.ts, not here.
 // The message processor accumulates cost but doesn't manage node lifecycle.
@@ -11,6 +11,9 @@ import type {
   SDKResultSuccess,
   SDKResultError,
   SDKSystemMessage,
+  SDKTaskStartedMessage,
+  SDKTaskProgressMessage,
+  SDKTaskNotificationMessage,
 } from '@anthropic-ai/claude-agent-sdk';
 
 // ── Test command patterns ───────────────────────────────────────────
@@ -135,6 +138,84 @@ export function createMessageProcessor(nodeId: string) {
   let idleTimer: ReturnType<typeof setTimeout> | null = null;
 
   const IDLE_TIMEOUT_MS = 120_000; // 2 minutes
+
+  // ── Subagent (phantom node) tracking ────────────────────────────────
+  // Maps SDK task_id → phantom node id for active subagents
+  const activeSubagents = new Map<string, string>();
+  const PHANTOM_REMOVAL_DELAY_MS = 2_000;
+
+  function createSubagentNode(taskId: string, taskName: string): void {
+    const phantomId = crypto.randomUUID();
+    activeSubagents.set(taskId, phantomId);
+
+    const node: WeftNode = {
+      id: phantomId,
+      type: 'subtask',
+      parentId: nodeId,
+      title: taskName || 'Subagent',
+      nodeState: 'running',
+      displayStage: 'planning',
+      needsHuman: false,
+      humanNeededType: null,
+      humanNeededPayload: null,
+      sessionId: null,
+      errorInfo: null,
+      overlap: { hasOverlap: false, overlappingNodes: [] },
+      prUrl: null,
+      prState: null,
+      costUsd: 0,
+      tokenUsage: { input: 0, output: 0 },
+      x: 0,
+      y: 0,
+      isPhantomSubagent: true,
+      subagentTaskId: taskId,
+    };
+
+    const edge: WeftEdge = {
+      id: `${nodeId}-${phantomId}`,
+      source: nodeId,
+      target: phantomId,
+    };
+
+    addPhantomNode(node, edge);
+    console.log(`[msg-processor:${nodeId}] phantom node ${phantomId} created for subagent task ${taskId}`);
+  }
+
+  function removeSubagentNode(taskId: string): void {
+    const phantomId = activeSubagents.get(taskId);
+    if (!phantomId) return;
+    activeSubagents.delete(taskId);
+
+    // Mark completed, then remove after a short delay so the UI can show the transition
+    const updated = updateNode(phantomId, { nodeState: 'completed' });
+    if (updated) {
+      broadcast({ type: 'node_updated', node: updated });
+    }
+
+    setTimeout(() => {
+      const removed = removeNode(phantomId);
+      if (removed) {
+        broadcast({ type: 'node_removed', nodeId: phantomId });
+        console.log(`[msg-processor:${nodeId}] phantom node ${phantomId} removed (task ${taskId} completed)`);
+      }
+    }, PHANTOM_REMOVAL_DELAY_MS);
+  }
+
+  function failSubagentNode(taskId: string, errorMessage: string): void {
+    const phantomId = activeSubagents.get(taskId);
+    if (!phantomId) return;
+    activeSubagents.delete(taskId);
+
+    // Mark as crashed — do NOT auto-remove so the user can inspect
+    const updated = updateNode(phantomId, {
+      nodeState: 'crashed',
+      errorInfo: { type: 'subagent_failed', message: errorMessage },
+    });
+    if (updated) {
+      broadcast({ type: 'node_updated', node: updated });
+    }
+    console.log(`[msg-processor:${nodeId}] phantom node ${phantomId} failed (task ${taskId}): ${errorMessage}`);
+  }
 
   // ── Stage transition helper ────────────────────────────────────────
 
@@ -410,10 +491,36 @@ export function createMessageProcessor(nodeId: string) {
 
     switch (msg.type) {
       case 'system': {
-        // Only handle init subtype — ignore status and compact_boundary
-        if ('subtype' in msg && msg.subtype === 'init') {
+        if (!('subtype' in msg)) break;
+
+        if (msg.subtype === 'init') {
           handleSystemInit(msg as SDKSystemMessage);
+        } else if (msg.subtype === 'task_started') {
+          const taskMsg = msg as SDKTaskStartedMessage;
+          createSubagentNode(taskMsg.task_id, taskMsg.description);
+        } else if (msg.subtype === 'task_progress') {
+          const taskMsg = msg as SDKTaskProgressMessage;
+          const phantomId = activeSubagents.get(taskMsg.task_id);
+          if (phantomId) {
+            broadcastTerminal(phantomId, [{ type: 'system', text: taskMsg.description }]);
+          }
+        } else if (msg.subtype === 'task_notification') {
+          const taskMsg = msg as SDKTaskNotificationMessage;
+          const phantomId = activeSubagents.get(taskMsg.task_id);
+          if (phantomId) {
+            if (taskMsg.status === 'completed' || taskMsg.status === 'stopped') {
+              if (taskMsg.summary) {
+                broadcastTerminal(phantomId, [{ type: 'system', text: taskMsg.summary }]);
+              }
+              removeSubagentNode(taskMsg.task_id);
+            } else if (taskMsg.status === 'failed') {
+              const errorText = taskMsg.summary || 'Subagent task failed';
+              broadcastTerminal(phantomId, [{ type: 'error', text: errorText }]);
+              failSubagentNode(taskMsg.task_id, errorText);
+            }
+          }
         }
+        // Ignore status, compact_boundary, and other subtypes
         break;
       }
 
@@ -468,6 +575,16 @@ export function createMessageProcessor(nodeId: string) {
 
   function cleanup(): void {
     clearIdleTimer();
+
+    // Remove all remaining phantom nodes (session is ending)
+    for (const [taskId, phantomId] of activeSubagents) {
+      const removed = removeNode(phantomId);
+      if (removed) {
+        broadcast({ type: 'node_removed', nodeId: phantomId });
+        console.log(`[msg-processor:${nodeId}] cleanup: removed phantom node ${phantomId} (task ${taskId})`);
+      }
+    }
+    activeSubagents.clear();
   }
 
   return { processMessage, cleanup };

@@ -64,6 +64,11 @@ export interface WeftNode {
   repoPath?: string;
   /** Optional branch name */
   branch?: string;
+
+  /** Marks auto-created visualization nodes for subagent tracking */
+  isPhantomSubagent?: boolean;
+  /** Correlates back to the SDK task_id for subagent lifecycle */
+  subagentTaskId?: string;
 }
 
 export interface WeftEdge {

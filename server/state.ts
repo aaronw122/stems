@@ -108,6 +108,15 @@ export function addNode(node: WeftNode): void {
   scheduleSave(getStateSnapshot);
 }
 
+/** Register a phantom (transient) node and edge without triggering persistence.
+ *  Phantom nodes are ephemeral subagent visualizations that should not be saved
+ *  to disk. The startup sweep in index.ts handles cleanup if they leak via updateNode. */
+export function addPhantomNode(node: WeftNode, edge: WeftEdge): void {
+  nodes.set(node.id, node);
+  edges.push(edge);
+  broadcast({ type: 'node_added', node, edge });
+}
+
 export function updateNode(id: string, patch: Partial<WeftNode>): WeftNode | null {
   const existing = nodes.get(id);
   if (!existing) return null;

@@ -47,7 +47,9 @@ function getChildNodes(nodeId: string): WeftNode[] {
   const children: WeftNode[] = [];
   for (const childId of childIds) {
     const child = getNode(childId);
-    if (child) children.push(child);
+    // Skip phantom subagent nodes — they are transient visualizations
+    // and must not block parent completion
+    if (child && !child.isPhantomSubagent) children.push(child);
   }
   return children;
 }
@@ -60,6 +62,10 @@ function getChildNodes(nodeId: string): WeftNode[] {
 export function autoMoveIfComplete(nodeId: string): void {
   const node = getNode(nodeId);
   if (!node) return;
+
+  // Phantom subagent nodes are transient visualization — they have their own
+  // removal lifecycle managed by the message processor, not the completion system.
+  if (node.isPhantomSubagent) return;
 
   if (checkCompletionCriteria(nodeId)) {
     // Move to done list

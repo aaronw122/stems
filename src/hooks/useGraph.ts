@@ -129,8 +129,10 @@ export const useGraph = create<GraphState>((set, get) => ({
 
         const newNodeIds = new Set([msg.node.id]);
         const { nodes, edges } = getLayoutedElements(allNodes, allEdges, newNodeIds);
-        // Auto-select spawned feature/subtask nodes to open terminal
-        const autoSelect = msg.node.type === 'feature' || msg.node.type === 'subtask';
+        // Auto-select spawned feature/subtask nodes to open terminal.
+        // Skip phantom subagent nodes — they would steal focus from the parent terminal.
+        const autoSelect = (msg.node.type === 'feature' || msg.node.type === 'subtask')
+          && !msg.node.isPhantomSubagent;
         set({ nodes, edges, ...(autoSelect ? { selectedNodeId: msg.node.id } : {}) });
         break;
       }
@@ -152,6 +154,8 @@ export const useGraph = create<GraphState>((set, get) => ({
           edges: state.edges.filter(
             (e) => e.source !== msg.nodeId && e.target !== msg.nodeId,
           ),
+          // Clear selection if the removed node was selected (phantom nodes auto-remove)
+          ...(state.selectedNodeId === msg.nodeId ? { selectedNodeId: null } : {}),
         }));
         break;
       }
