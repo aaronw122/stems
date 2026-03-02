@@ -72,7 +72,7 @@ Early-stage personal project. Prioritize simplicity — avoid over-engineering. 
 
 ## Safety Rules
 
-**NEVER push directly to main.** All work goes through feature branches and PRs.
+**Branch check before any edits.** Before modifying any file, run `git branch --show-current`. If you're on `main` (or `master`), **stop and create a feature branch first.** All work goes through feature branches and PRs — no commits on main, no pushes to main.
 
 **NEVER execute these commands without explicit user approval:**
 
