@@ -472,7 +472,7 @@ export function useAutocomplete(nodeId: string): UseAutocompleteReturn {
     if (trigger.type === '/') {
       // For `/` commands: insertText is `/${commandName} `, typed so far is `/${query}`
       const typed = '/' + trigger.query;
-      const remaining = singleItem.insertText.slice(typed.length);
+      const remaining = singleItem.insertText.slice(typed.length).trimEnd();
       ghostText = remaining.length > 0 ? remaining : null;
     } else {
       // For `@` files: only show ghost text for prefix matches

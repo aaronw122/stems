@@ -410,7 +410,7 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
             }}
             onKeyDown={handleKeyDown}
             rows={1}
-            className="resize-none bg-transparent font-mono text-sm leading-5 outline-none w-full"
+            className="resize-none bg-transparent font-mono text-sm leading-5 outline-none w-full p-0"
             style={{ color: 'var(--term-input-text)' }}
             role="combobox"
             aria-expanded={autocomplete.isOpen}
