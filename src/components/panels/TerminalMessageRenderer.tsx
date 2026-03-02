@@ -81,19 +81,38 @@ export function TerminalMessageRenderer({ message }: TerminalMessageRendererProp
 
     case 'tool_use':
       return (
-        <div className="my-0.5 flex items-start gap-1.5">
-          <span style={{ color: 'var(--term-tool-success)' }}>&#9679;</span>
-          <span>
-            {message.toolName && (
-              <span
-                className="mr-1.5"
-                style={{ color: 'var(--term-tool-name)' }}
-              >
-                {message.toolName}
-              </span>
-            )}
-            <span style={{ color: 'var(--term-text-dim)' }}>{message.text}</span>
-          </span>
+        <div>
+          <div className="my-0.5 flex items-start gap-1.5">
+            <span style={{ color: 'var(--term-tool-success)' }}>&#9679;</span>
+            <span>
+              {message.toolName && (
+                <span
+                  className="mr-1.5"
+                  style={{ color: 'var(--term-tool-name)' }}
+                >
+                  {message.toolName}
+                </span>
+              )}
+              <span style={{ color: 'var(--term-text-dim)' }}>{message.text}</span>
+            </span>
+          </div>
+          {(message.diffRemoved || message.diffAdded) && (
+            <div
+              className="ml-5 mt-1 rounded px-2 py-1 text-xs leading-4"
+              style={{ backgroundColor: 'rgba(255,255,255,0.03)' }}
+            >
+              {message.diffRemoved && (
+                <div style={{ color: 'var(--term-tool-error)', whiteSpace: 'pre-wrap' }}>
+                  {message.diffRemoved}
+                </div>
+              )}
+              {message.diffAdded && (
+                <div style={{ color: 'var(--term-tool-success)', whiteSpace: 'pre-wrap' }}>
+                  {message.diffAdded}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       );
 
