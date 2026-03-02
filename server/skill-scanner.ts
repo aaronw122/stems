@@ -69,7 +69,6 @@ function parseFrontmatter(content: string): Record<string, string> {
   const result: Record<string, string> = {};
   let currentKey: string | null = null;
   let currentValue: string[] = [];
-  let inBlockScalar = false;
 
   for (const line of lines) {
     // Check for a new top-level key (not indented)
@@ -84,12 +83,10 @@ function parseFrontmatter(content: string): Record<string, string> {
       currentKey = keyMatch[1]!;
       const rawValue = keyMatch[2]!.trim();
 
-      // Check if value is a block scalar indicator (>, >-, >+)
+      // Block scalar indicator (>, >-, >+) means value continues on indented lines
       if (/^>[+-]?\s*$/.test(rawValue)) {
-        inBlockScalar = true;
         currentValue = [];
       } else {
-        inBlockScalar = false;
         currentValue = [rawValue];
       }
     } else if (currentKey !== null && /^\s+/.test(line)) {
