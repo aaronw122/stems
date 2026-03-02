@@ -87,6 +87,7 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
   } = useFloatingWindow(containerRef);
 
   const autocomplete = useAutocomplete(nodeId);
+  const [cursorAtEnd, setCursorAtEnd] = useState(true);
 
   const messages = useTerminal((s) => s.buffers.get(nodeId) ?? EMPTY_MESSAGES);
 
@@ -374,44 +375,65 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
         >
           ❯
         </span>
-        <textarea
-          ref={inputRef}
-          value={input}
-          onChange={(e) => {
-            const value = e.target.value;
-            // Read cursor position BEFORE DOM mutations (auto-resize)
-            const cursorPos = e.target.selectionStart ?? value.length;
-            setInput(value);
-            // Auto-resize
-            const el = e.target;
-            el.style.height = 'auto';
-            el.style.height = `${el.scrollHeight}px`;
-            // Notify autocomplete
-            autocomplete.onInputChange(value, cursorPos);
-          }}
-          onKeyDown={handleKeyDown}
-          rows={1}
-          className="flex-1 resize-none bg-transparent font-mono text-sm leading-5 outline-none"
-          style={{ color: 'var(--term-input-text)' }}
-          role="combobox"
-          aria-expanded={autocomplete.isOpen}
-          aria-activedescendant={autocomplete.activeDescendantId ?? undefined}
-          aria-controls={autocomplete.listboxId}
-        />
+        <div className="terminal-ghost-wrapper flex-1">
+          {/* Mirror div: invisible typed text + visible ghost text */}
+          <div
+            aria-hidden="true"
+            className="terminal-ghost-mirror font-mono text-sm leading-5 whitespace-pre-wrap break-words"
+          >
+            <span style={{ visibility: 'hidden' }}>{input}</span>
+            {autocomplete.ghostText && cursorAtEnd && (
+              <span style={{ color: 'var(--term-text-dim)', opacity: 0.6 }}>{autocomplete.ghostText}</span>
+            )}
+          </div>
+          {/* Textarea on top */}
+          <textarea
+            ref={inputRef}
+            value={input}
+            onChange={(e) => {
+              const value = e.target.value;
+              // Read cursor position BEFORE DOM mutations (auto-resize)
+              const cursorPos = e.target.selectionStart ?? value.length;
+              setInput(value);
+              // Typing always moves cursor to end of insertion
+              setCursorAtEnd(cursorPos === value.length);
+              // Auto-resize
+              const el = e.target;
+              el.style.height = 'auto';
+              el.style.height = `${el.scrollHeight}px`;
+              // Notify autocomplete
+              autocomplete.onInputChange(value, cursorPos);
+            }}
+            onSelect={(e) => {
+              const el = e.target as HTMLTextAreaElement;
+              setCursorAtEnd(el.selectionStart === el.value.length);
+            }}
+            onKeyDown={handleKeyDown}
+            rows={1}
+            className="resize-none bg-transparent font-mono text-sm leading-5 outline-none w-full"
+            style={{ color: 'var(--term-input-text)' }}
+            role="combobox"
+            aria-expanded={autocomplete.isOpen}
+            aria-activedescendant={autocomplete.activeDescendantId ?? undefined}
+            aria-controls={autocomplete.listboxId}
+          />
+        </div>
       </div>
 
-      {/* Autocomplete dropdown (portal-rendered above the textarea) */}
-      <AutocompleteDropdown
-        items={autocomplete.items}
-        selectedIndex={autocomplete.selectedIndex}
-        triggerType={autocomplete.triggerType}
-        isOpen={autocomplete.isOpen}
-        onItemClick={handleAutocompleteItemClick}
-        onItemHover={autocomplete.onItemHover}
-        activeDescendantId={autocomplete.activeDescendantId}
-        listboxId={autocomplete.listboxId}
-        textareaRef={inputRef}
-      />
+      {/* Autocomplete dropdown (portal-rendered above the textarea) — hidden when ghost text is active */}
+      {!autocomplete.ghostText && (
+        <AutocompleteDropdown
+          items={autocomplete.items}
+          selectedIndex={autocomplete.selectedIndex}
+          triggerType={autocomplete.triggerType}
+          isOpen={autocomplete.isOpen}
+          onItemClick={handleAutocompleteItemClick}
+          onItemHover={autocomplete.onItemHover}
+          activeDescendantId={autocomplete.activeDescendantId}
+          listboxId={autocomplete.listboxId}
+          textareaRef={inputRef}
+        />
+      )}
     </div>
   );
 }

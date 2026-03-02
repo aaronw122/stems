@@ -27,6 +27,7 @@ export interface UseAutocompleteReturn {
   selectedIndex: number;
   triggerType: '@' | '/' | null;
   isOpen: boolean;
+  ghostText: string | null;
   onInputChange: (value: string, cursorPosition: number) => void;
   onKeyDown: (e: React.KeyboardEvent) => boolean;
   accept: () => { newValue: string; newCursorPosition: number } | null;
@@ -462,11 +463,32 @@ export function useAutocomplete(nodeId: string): UseAutocompleteReturn {
       ? `${listboxId}-option-${selectedIndex}`
       : null;
 
+  // ── Ghost text (single-match inline suggestion) ────────────
+
+  let ghostText: string | null = null;
+  const singleItem = items.length === 1 ? items[0] : undefined;
+  if (singleItem && isOpen && triggerRef.current) {
+    const trigger = triggerRef.current;
+    if (trigger.type === '/') {
+      // For `/` commands: insertText is `/${commandName} `, typed so far is `/${query}`
+      const typed = '/' + trigger.query;
+      const remaining = singleItem.insertText.slice(typed.length);
+      ghostText = remaining.length > 0 ? remaining : null;
+    } else {
+      // For `@` files: only show ghost text for prefix matches
+      if (singleItem.insertText.toLowerCase().startsWith(trigger.query.toLowerCase())) {
+        const remaining = singleItem.insertText.slice(trigger.query.length);
+        ghostText = remaining.length > 0 ? remaining : null;
+      }
+    }
+  }
+
   return {
     items,
     selectedIndex,
     triggerType,
     isOpen,
+    ghostText,
     onInputChange,
     onKeyDown,
     accept,
