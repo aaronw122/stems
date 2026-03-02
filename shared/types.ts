@@ -7,6 +7,7 @@ export type TerminalMessageType =
   | 'tool_result'
   | 'human_needed'
   | 'system'
+  | 'session_banner'
   | 'error';
 
 export interface TerminalMessage {
@@ -17,6 +18,15 @@ export interface TerminalMessage {
   costUsd?: number;
   diffRemoved?: string;
   diffAdded?: string;
+  bannerData?: {
+    claudeCodeVersion: string;
+    model: string;           // raw model ID like "claude-opus-4-6"
+    modelDisplayName: string; // pretty name like "Opus 4.6"
+    subscriptionType?: string;
+    cwd: string;
+    upgradeAvailable?: boolean;
+    latestVersion?: string;
+  };
 }
 
 // ── Node enums / union types ──────────────────────────────────────────

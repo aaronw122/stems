@@ -71,6 +71,18 @@ function markdownToHtml(text: string): string {
   return html;
 }
 
+// ── Banner helpers ────────────────────────────────────────────────
+
+function formatPlan(subscriptionType?: string): string {
+  if (!subscriptionType) return '';
+  const map: Record<string, string> = {
+    claude_max: 'Max',
+    claude_pro: 'Pro',
+    free: 'Free',
+  };
+  return map[subscriptionType] ?? subscriptionType;
+}
+
 // ── Component ──────────────────────────────────────────────────────
 
 interface TerminalMessageRendererProps {
@@ -178,6 +190,31 @@ export function TerminalMessageRenderer({ message }: TerminalMessageRendererProp
           {message.text}
         </div>
       );
+
+    case 'session_banner': {
+      const b = message.bannerData!;
+      const planLabel = formatPlan(b.subscriptionType);
+      return (
+        <div className="terminal-banner">
+          <div className="terminal-banner-info">
+            <div className="terminal-banner-title">
+              Claude Code v{b.claudeCodeVersion}
+            </div>
+            <div className="terminal-banner-meta">
+              {b.modelDisplayName}{planLabel && ` · Claude ${planLabel}`}
+            </div>
+            <div className="terminal-banner-cwd">
+              {b.cwd}
+            </div>
+            {b.upgradeAvailable && (
+              <div className="terminal-banner-upgrade">
+                v{b.latestVersion} available
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
 
     case 'system':
       return (

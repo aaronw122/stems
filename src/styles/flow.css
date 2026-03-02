@@ -166,6 +166,37 @@ body {
   border-radius: 3px;
 }
 
+/* ── Session banner ──────────────────────────────────────────────── */
+
+.terminal-banner {
+  display: flex;
+  gap: 12px;
+  padding: 8px 0 12px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--term-input-border);
+}
+
+.terminal-banner-title {
+  font-weight: 600;
+  color: var(--term-text);
+}
+
+.terminal-banner-meta {
+  color: var(--term-text-dim);
+  font-size: 0.9em;
+}
+
+.terminal-banner-cwd {
+  color: var(--term-text-dim);
+  font-size: 0.9em;
+}
+
+.terminal-banner-upgrade {
+  color: var(--term-tool-error);
+  font-size: 0.85em;
+  margin-top: 2px;
+}
+
 /* ── Terminal Message Types ── */
 
 .term-msg-user {
