@@ -354,7 +354,6 @@ export function createMessageProcessor(nodeId: string) {
       }
     }
 
-    messages.push({ type: 'system', text: 'Completed', costUsd: msg.total_cost_usd });
     return messages;
   }
 
