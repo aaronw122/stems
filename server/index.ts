@@ -26,6 +26,7 @@ import {
   flushSave,
 } from './state.ts';
 import { spawnSession, hasSession, killSession, killAllSessions, sendInput } from './session.ts';
+import { extractTitle } from './message-processor.ts';
 import { getAllActiveFiles, clearNode as clearOverlapNode } from './overlap-tracker.ts';
 import { stopPolling as stopPRPolling, stopTracking as stopPRTracking } from './pr-tracker.ts';
 import { summarizeContext } from './context-summary.ts';
@@ -298,9 +299,17 @@ async function handleMessage(ws: ServerWebSocket<unknown>, raw: string): Promise
 
           const appendSystemPrompt = promptParts.length > 0 ? promptParts.join('\n\n') : undefined;
 
-          // Store the prompt on the node for future context
+          // Store the prompt and derive a title from the user's first message
           if (node) {
-            updateNode(nodeId, { prompt: payload.text });
+            const updates: Record<string, unknown> = { prompt: payload.text };
+            const derivedTitle = extractTitle(payload.text);
+            if (derivedTitle) {
+              updates.title = derivedTitle;
+            }
+            const titleUpdated = updateNode(nodeId, updates);
+            if (titleUpdated) {
+              broadcast({ type: 'node_updated', node: titleUpdated });
+            }
           }
 
           broadcastTerminal(nodeId, [{ type: 'user_message', text: payload.text }]);

@@ -34,7 +34,7 @@ function isTestCommand(command: string): boolean {
 
 // ── Auto-title extraction ───────────────────────────────────────────
 
-function extractTitle(text: string): string | null {
+export function extractTitle(text: string): string | null {
   // Strip leading whitespace/newlines
   const cleaned = text.replace(/^\s+/, '');
   if (cleaned.length < 5) return null;
