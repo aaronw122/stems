@@ -26,7 +26,6 @@ import {
   flushSave,
 } from './state.ts';
 import { spawnSession, hasSession, killSession, killAllSessions, sendInput, generateFeatureTitle } from './session.ts';
-import { extractTitle } from './message-processor.ts';
 import { getAllActiveFiles, clearNode as clearOverlapNode } from './overlap-tracker.ts';
 import { stopPolling as stopPRPolling, stopTracking as stopPRTracking } from './pr-tracker.ts';
 import { summarizeContext } from './context-summary.ts';
@@ -299,17 +298,9 @@ async function handleMessage(ws: ServerWebSocket<unknown>, raw: string): Promise
 
           const appendSystemPrompt = promptParts.length > 0 ? promptParts.join('\n\n') : undefined;
 
-          // Store the prompt and set a placeholder title from user text
+          // Store the prompt on the node for future context
           if (node) {
-            const updates: Record<string, unknown> = { prompt: payload.text };
-            const derivedTitle = extractTitle(payload.text);
-            if (derivedTitle) {
-              updates.title = derivedTitle;
-            }
-            const titleUpdated = updateNode(nodeId, updates);
-            if (titleUpdated) {
-              broadcast({ type: 'node_updated', node: titleUpdated });
-            }
+            updateNode(nodeId, { prompt: payload.text });
 
             // Fire-and-forget: generate a smart title via LLM
             generateFeatureTitle(nodeId, payload.text, repoPath);
