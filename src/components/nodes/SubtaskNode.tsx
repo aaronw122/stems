@@ -28,13 +28,13 @@ interface SubtaskNodeData extends WeftNode {
   onUpdateTitle?: (nodeId: string, title: string) => void;
 }
 
-export function SubtaskNode({ data }: NodeProps) {
+export function SubtaskNode({ data, selected }: NodeProps) {
   const node = data as unknown as SubtaskNodeData;
   const borderClass = STATE_STYLES[node.nodeState] ?? STATE_STYLES.idle;
   const dotClass = STATE_DOT[node.nodeState] ?? STATE_DOT.idle;
 
   return (
-    <div className={`min-w-[140px] rounded-md border-l-3 ${borderClass} bg-zinc-800/90 px-3 py-2 shadow-md`}>
+    <div className={`min-w-[140px] rounded-md border-l-3 ${borderClass} bg-zinc-800/90 px-3 py-2 shadow-md ${selected ? 'ring-2 ring-blue-500/50' : ''}`}>
       <div className="flex items-center gap-1.5">
         <div className={`h-2 w-2 rounded-full ${dotClass} shrink-0`} />
         <EditableTitle

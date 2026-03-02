@@ -4,6 +4,7 @@ import {
   Background,
   Controls,
   MiniMap,
+  SelectionMode,
   applyNodeChanges,
   applyEdgeChanges,
 } from '@xyflow/react';
@@ -90,27 +91,27 @@ export function FlowCanvas({ send, onSpawn }: FlowCanvasProps) {
     setDeleteConfirm({ isOpen: false, nodeId: '', nodeName: '', details: '' });
   }, []);
 
-  // ── Delete key handler for selected repo nodes ────────────────────
-  const selectedNodeId = useGraph((s) => s.selectedNodeId);
-
+  // ── Delete key handler (multi-select aware) ─────────────────────
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === 'Delete' || e.key === 'Backspace') {
-        // Don't intercept when typing in inputs
         const tag = (e.target as HTMLElement)?.tagName;
         if (tag === 'INPUT' || tag === 'TEXTAREA') return;
 
-        if (!selectedNodeId) return;
-        const selectedNode = nodes.find((n) => n.id === selectedNodeId);
-        if (selectedNode?.type !== 'repo') return;
+        const firstSelectedRepo = nodes.find((n) => n.selected && n.type === 'repo');
+        if (!firstSelectedRepo) return;
 
         e.preventDefault();
-        handleDeleteRequest(selectedNodeId);
+        handleDeleteRequest(firstSelectedRepo.id);
       }
     }
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedNodeId, nodes, handleDeleteRequest]);
+  }, [nodes, handleDeleteRequest]);
+
+  const handlePaneClick = useCallback(() => {
+    setSelectedNode(null);
+  }, [setSelectedNode]);
 
   const handleUpdateTitle = useCallback(
     (nodeId: string, title: string) => {
@@ -191,8 +192,12 @@ export function FlowCanvas({ send, onSpawn }: FlowCanvasProps) {
       onEdgesChange={handleEdgesChange}
       onNodeClick={onNodeClick}
       onNodeDragStop={handleNodeDragStop}
+      onPaneClick={handlePaneClick}
       defaultEdgeOptions={defaultEdgeOptions}
       deleteKeyCode={null}
+      panOnDrag={false}
+      selectionOnDrag
+      selectionMode={SelectionMode.Partial}
       panOnScroll
       zoomOnPinch
       zoomOnScroll={false}
