@@ -101,7 +101,8 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
   const contextPercent = nodeData?.contextPercent ?? null;
 
   // Find the session_banner message (may not be at index 0 — user prompt can arrive first)
-  const bannerData = messages.find(m => m.type === 'session_banner')?.bannerData;
+  const bannerMsg = messages.find(m => m.type === 'session_banner');
+  const bannerData = bannerMsg?.bannerData;
 
   // Show thinking indicator when node is running and last message isn't streaming text
   const lastMsg = messages[messages.length - 1];
@@ -398,8 +399,10 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
         className={`nowheel flex-1 overflow-y-auto px-4 py-3${isScrolling ? ' is-scrolling' : ''}`}
       >
         <pre className="whitespace-pre-wrap break-words font-mono" style={{ color: 'var(--term-text)', fontSize: `${fontSize}px`, lineHeight: '1.6' }}>
+          {/* Render banner first regardless of buffer position */}
+          {bannerMsg && <TerminalMessageRenderer key="banner" message={bannerMsg} />}
           {messages.map((msg, i) => (
-            <TerminalMessageRenderer key={i} message={msg} />
+            msg.type === 'session_banner' ? null : <TerminalMessageRenderer key={i} message={msg} />
           ))}
           {showThinking && <ThinkingIndicator nodeId={nodeId} />}
           {messages.length === 0 && (
