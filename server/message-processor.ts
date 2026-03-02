@@ -1,6 +1,6 @@
-import { broadcastTerminal, updateNode, getNode, broadcast, clearHumanNeeded } from './state.ts';
+import { broadcastTerminal, updateNode, getNode, broadcast, clearHumanNeeded, addPhantomNode, updatePhantomNode, removePhantomNode } from './state.ts';
 import { trackFileEdit } from './overlap-tracker.ts';
-import type { DisplayStage, TerminalMessage } from '../shared/types.ts';
+import type { DisplayStage, TerminalMessage, WeftNode, WeftEdge } from '../shared/types.ts';
 import { extractPRUrls, trackPR } from './pr-tracker.ts';
 // Note: autoMoveIfComplete is called by session.ts, not here.
 // The message processor accumulates cost but doesn't manage node lifecycle.
@@ -11,6 +11,9 @@ import type {
   SDKResultSuccess,
   SDKResultError,
   SDKSystemMessage,
+  SDKTaskStartedMessage,
+  SDKTaskProgressMessage,
+  SDKTaskNotificationMessage,
 } from '@anthropic-ai/claude-agent-sdk';
 
 // ── Test command patterns ───────────────────────────────────────────
@@ -136,6 +139,93 @@ export function createMessageProcessor(nodeId: string) {
 
   const IDLE_TIMEOUT_MS = 120_000; // 2 minutes
 
+  // ── Subagent (phantom node) tracking ────────────────────────────────
+
+  // Maps SDK task_id → phantom node id for active subagents
+  const activeSubagents = new Map<string, string>();
+  // Maps tool_use_id → subagent_type from Agent tool_use blocks, so that
+  // task_started (which carries tool_use_id but NOT the agent name) can
+  // correlate back to the Agent block to get the display name.
+  const agentToolUseTypes = new Map<string, string>();
+  const PHANTOM_REMOVAL_DELAY_MS = 2_000;
+
+  function createSubagentNode(taskId: string, toolUseId: string | undefined, description: string): void {
+    const phantomId = crypto.randomUUID();
+    activeSubagents.set(taskId, phantomId);
+
+    // Resolve agent name: correlate tool_use_id back to the Agent tool_use
+    // block's subagent_type. Fall back to description or generic label.
+    const agentName = (toolUseId && agentToolUseTypes.get(toolUseId)) || description || 'Subagent';
+
+    const node: WeftNode = {
+      id: phantomId,
+      type: 'phantom',
+      parentId: nodeId,
+      title: agentName,
+      nodeState: 'running',
+      displayStage: 'planning',
+      needsHuman: false,
+      humanNeededType: null,
+      humanNeededPayload: null,
+      sessionId: null,
+      errorInfo: null,
+      overlap: { hasOverlap: false, overlappingNodes: [] },
+      prUrl: null,
+      prState: null,
+      costUsd: 0,
+      tokenUsage: { input: 0, output: 0 },
+      x: 0,
+      y: 0,
+      isPhantomSubagent: true,
+      subagentTaskId: taskId,
+      toolUseCount: 0,
+      totalTokens: 0,
+      currentActivity: description || '',
+    };
+
+    const edge: WeftEdge = {
+      id: `${nodeId}-${phantomId}`,
+      source: nodeId,
+      target: phantomId,
+    };
+
+    addPhantomNode(node, edge);
+    console.log(`[msg-processor:${nodeId}] phantom node ${phantomId} created for subagent task ${taskId} (${agentName})`);
+  }
+
+  function updateSubagentStats(taskId: string, patch: Partial<WeftNode>): void {
+    const phantomId = activeSubagents.get(taskId);
+    if (!phantomId) return;
+    updatePhantomNode(phantomId, patch);
+  }
+
+  function removeSubagentNode(taskId: string): void {
+    const phantomId = activeSubagents.get(taskId);
+    if (!phantomId) return;
+    activeSubagents.delete(taskId);
+
+    // Mark completed, then remove after a short delay so the UI can show the transition
+    updatePhantomNode(phantomId, { nodeState: 'completed' });
+
+    setTimeout(() => {
+      removePhantomNode(phantomId);
+      console.log(`[msg-processor:${nodeId}] phantom node ${phantomId} removed (task ${taskId} completed)`);
+    }, PHANTOM_REMOVAL_DELAY_MS);
+  }
+
+  function failSubagentNode(taskId: string, errorMessage: string): void {
+    const phantomId = activeSubagents.get(taskId);
+    if (!phantomId) return;
+    // Keep in activeSubagents so failed nodes remain visible
+    // (but don't delete from map — they stay on the DAG for inspection)
+
+    updatePhantomNode(phantomId, {
+      nodeState: 'crashed',
+      errorInfo: { type: 'subagent_failed', message: errorMessage },
+    });
+    console.log(`[msg-processor:${nodeId}] phantom node ${phantomId} failed (task ${taskId}): ${errorMessage}`);
+  }
+
   // ── Stage transition helper ────────────────────────────────────────
 
   function transitionStage(newStage: DisplayStage): void {
@@ -222,6 +312,11 @@ export function createMessageProcessor(nodeId: string) {
   // ── Handle assistant message (complete turn) ──────────────────────
 
   function handleAssistant(msg: SDKAssistantMessage): TerminalMessage[] {
+    // Suppress subagent messages — these belong to the subagent tracker,
+    // not the parent terminal buffer. The parent's own messages have
+    // parent_tool_use_id === null.
+    if (msg.parent_tool_use_id) return [];
+
     const messages: TerminalMessage[] = [];
     const content = msg.message?.content;
 
@@ -251,6 +346,15 @@ export function createMessageProcessor(nodeId: string) {
           const name = String(block.name ?? 'unknown_tool');
           const input = 'input' in block ? block.input : undefined;
 
+          // When we see an Agent tool_use block, store the tool_use_id →
+          // description mapping so that task_started can correlate back
+          // to get a human-readable display name for the phantom node.
+          if (name === 'Agent' && 'id' in block) {
+            const inp = input && typeof input === 'object' ? input as Record<string, unknown> : {};
+            const displayName = String(inp.description ?? inp.subagent_type ?? 'Agent');
+            agentToolUseTypes.set(String(block.id), displayName);
+          }
+
           // Precedence rule: AskUserQuestion emits human_needed, not tool_use
           if (name === 'AskUserQuestion') {
             const questionText = input && typeof input === 'object' && 'question' in (input as Record<string, unknown>)
@@ -267,18 +371,18 @@ export function createMessageProcessor(nodeId: string) {
               : name === 'WebSearch' ? 'Web Search'
               : name === 'WebFetch' ? 'Fetch'
               : name;
-            const msg: TerminalMessage = { type: 'tool_use', text: extractToolSummary(name, inp), toolName: displayName };
+            const tmsg: TerminalMessage = { type: 'tool_use', text: extractToolSummary(name, inp), toolName: displayName };
 
             // Attach diff data for Edit tools
             if (name === 'Edit') {
               if (typeof inp.old_string === 'string' && inp.old_string !== '') {
-                msg.diffRemoved = formatDiffSide(inp.old_string, '-');
+                tmsg.diffRemoved = formatDiffSide(inp.old_string, '-');
               }
               if (typeof inp.new_string === 'string') {
-                msg.diffAdded = formatDiffSide(inp.new_string, '+');
+                tmsg.diffAdded = formatDiffSide(inp.new_string, '+');
               }
             }
-            messages.push(msg);
+            messages.push(tmsg);
           }
 
           // Track file edits for overlap detection
@@ -319,6 +423,10 @@ export function createMessageProcessor(nodeId: string) {
   // ── Handle streaming partial message ──────────────────────────────
 
   function handleStreamEvent(msg: SDKPartialAssistantMessage): TerminalMessage[] {
+    // Suppress subagent streaming messages — they belong to the subagent
+    // tracker, not the parent terminal buffer.
+    if (msg.parent_tool_use_id) return [];
+
     const messages: TerminalMessage[] = [];
     const event = msg.event;
 
@@ -408,10 +516,41 @@ export function createMessageProcessor(nodeId: string) {
 
     switch (msg.type) {
       case 'system': {
-        // Only handle init subtype — ignore status and compact_boundary
-        if ('subtype' in msg && msg.subtype === 'init') {
+        if (!('subtype' in msg)) break;
+
+        if (msg.subtype === 'init') {
           handleSystemInit(msg as SDKSystemMessage);
+        } else if (msg.subtype === 'task_started') {
+          const taskMsg = msg as SDKTaskStartedMessage;
+          createSubagentNode(taskMsg.task_id, taskMsg.tool_use_id, taskMsg.description);
+        } else if (msg.subtype === 'task_progress') {
+          const taskMsg = msg as SDKTaskProgressMessage;
+          // Update phantom node stats from task_progress usage data
+          updateSubagentStats(taskMsg.task_id, {
+            toolUseCount: taskMsg.usage.tool_uses,
+            totalTokens: taskMsg.usage.total_tokens,
+            currentActivity: taskMsg.last_tool_name
+              ? `${taskMsg.last_tool_name}: ${taskMsg.description}`
+              : taskMsg.description,
+          });
+        } else if (msg.subtype === 'task_notification') {
+          const taskMsg = msg as SDKTaskNotificationMessage;
+          if (taskMsg.status === 'completed' || taskMsg.status === 'stopped') {
+            // Update final stats if available
+            if (taskMsg.usage) {
+              updateSubagentStats(taskMsg.task_id, {
+                toolUseCount: taskMsg.usage.tool_uses,
+                totalTokens: taskMsg.usage.total_tokens,
+                currentActivity: taskMsg.status === 'completed' ? 'Completed' : 'Stopped',
+              });
+            }
+            removeSubagentNode(taskMsg.task_id);
+          } else if (taskMsg.status === 'failed') {
+            const errorText = taskMsg.summary || 'Subagent task failed';
+            failSubagentNode(taskMsg.task_id, errorText);
+          }
         }
+        // Ignore status, compact_boundary, and other subtypes
         break;
       }
 
@@ -466,6 +605,16 @@ export function createMessageProcessor(nodeId: string) {
 
   function cleanup(): void {
     clearIdleTimer();
+
+    // Remove all remaining phantom nodes (session is ending)
+    for (const [taskId, phantomId] of activeSubagents) {
+      const removed = removePhantomNode(phantomId);
+      if (removed) {
+        console.log(`[msg-processor:${nodeId}] cleanup: removed phantom node ${phantomId} (task ${taskId})`);
+      }
+    }
+    activeSubagents.clear();
+    agentToolUseTypes.clear();
   }
 
   return { processMessage, cleanup };

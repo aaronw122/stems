@@ -38,3 +38,6 @@ notes/
 
 # PID files
 *.pids
+
+# Working notes (session reviews, scratch)
+notes/

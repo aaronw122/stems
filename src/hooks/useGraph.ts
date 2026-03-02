@@ -3,6 +3,7 @@ import dagre from 'dagre';
 import type { Node, Edge, NodeChange, EdgeChange } from '@xyflow/react';
 import { applyNodeChanges as xyApplyNodeChanges, applyEdgeChanges as xyApplyEdgeChanges } from '@xyflow/react';
 import type { WeftNode, WeftEdge, ServerMessage } from '../../shared/types.ts';
+import { useSubagents } from './useSubagents.ts';
 
 // ── Dagre layout ─────────────────────────────────────────────────────
 
@@ -10,6 +11,8 @@ const NODE_WIDTH = 200;
 const NODE_HEIGHT = 80;
 const SUBTASK_WIDTH = 160;
 const SUBTASK_HEIGHT = 60;
+const PHANTOM_WIDTH = 140;
+const PHANTOM_HEIGHT = 44;
 
 function getLayoutedElements(
   nodes: Node[],
@@ -21,11 +24,16 @@ function getLayoutedElements(
   g.setGraph({ rankdir: 'LR', nodesep: 80, ranksep: 120 });
 
   for (const node of nodes) {
-    const isSubtask = node.type === 'subtask';
-    g.setNode(node.id, {
-      width: isSubtask ? SUBTASK_WIDTH : NODE_WIDTH,
-      height: isSubtask ? SUBTASK_HEIGHT : NODE_HEIGHT,
-    });
+    let width = NODE_WIDTH;
+    let height = NODE_HEIGHT;
+    if (node.type === 'phantom') {
+      width = PHANTOM_WIDTH;
+      height = PHANTOM_HEIGHT;
+    } else if (node.type === 'subtask') {
+      width = SUBTASK_WIDTH;
+      height = SUBTASK_HEIGHT;
+    }
+    g.setNode(node.id, { width, height });
   }
 
   for (const edge of edges) {
@@ -41,9 +49,15 @@ function getLayoutedElements(
       return node;
     }
 
-    const isSubtask = node.type === 'subtask';
-    const width = isSubtask ? SUBTASK_WIDTH : NODE_WIDTH;
-    const height = isSubtask ? SUBTASK_HEIGHT : NODE_HEIGHT;
+    let width = NODE_WIDTH;
+    let height = NODE_HEIGHT;
+    if (node.type === 'phantom') {
+      width = PHANTOM_WIDTH;
+      height = PHANTOM_HEIGHT;
+    } else if (node.type === 'subtask') {
+      width = SUBTASK_WIDTH;
+      height = SUBTASK_HEIGHT;
+    }
 
     return {
       ...node,
@@ -116,6 +130,14 @@ export const useGraph = create<GraphState>((set, get) => ({
         const flowEdges = msg.edges.map(toFlowEdge);
         const { nodes, edges } = getLayoutedElements(flowNodes, flowEdges);
         set({ nodes, edges, doneList: msg.doneList });
+
+        // Initialize subagent tracking for any existing phantom nodes
+        const subagentStore = useSubagents.getState();
+        for (const node of msg.nodes) {
+          if (node.isPhantomSubagent) {
+            subagentStore.updateFromNode(node);
+          }
+        }
         break;
       }
 
@@ -129,9 +151,16 @@ export const useGraph = create<GraphState>((set, get) => ({
 
         const newNodeIds = new Set([msg.node.id]);
         const { nodes, edges } = getLayoutedElements(allNodes, allEdges, newNodeIds);
-        // Auto-select spawned feature/subtask nodes to open terminal
-        const autoSelect = msg.node.type === 'feature' || msg.node.type === 'subtask';
+        // Auto-select spawned feature/subtask nodes to open terminal.
+        // Skip phantom subagent nodes — they would steal focus from the parent terminal.
+        const autoSelect = (msg.node.type === 'feature' || msg.node.type === 'subtask')
+          && !msg.node.isPhantomSubagent;
         set({ nodes, edges, ...(autoSelect ? { selectedNodeId: msg.node.id } : {}) });
+
+        // Track phantom subagents in the dedicated store
+        if (msg.node.isPhantomSubagent) {
+          useSubagents.getState().updateFromNode(msg.node);
+        }
         break;
       }
 
@@ -143,21 +172,36 @@ export const useGraph = create<GraphState>((set, get) => ({
               : n,
           ),
         }));
+
+        // Keep the subagent summary widget in sync
+        if (msg.node.isPhantomSubagent) {
+          useSubagents.getState().updateFromNode(msg.node);
+        }
         break;
       }
 
       case 'node_removed': {
+        // Clean up subagent tracking before removing the node
+        useSubagents.getState().removeSubagent(msg.nodeId);
+
         set((state) => ({
           nodes: state.nodes.filter((n) => n.id !== msg.nodeId),
           edges: state.edges.filter(
             (e) => e.source !== msg.nodeId && e.target !== msg.nodeId,
           ),
+          // Clear selection if the removed node was selected (phantom nodes auto-remove)
+          ...(state.selectedNodeId === msg.nodeId ? { selectedNodeId: null } : {}),
         }));
         break;
       }
 
       case 'tree_removed': {
         const removedSet = new Set(msg.nodeIds);
+        // Clean up any phantom subagents in the removed tree
+        const subagentStore = useSubagents.getState();
+        for (const nodeId of msg.nodeIds) {
+          subagentStore.removeSubagent(nodeId);
+        }
         set((state) => ({
           nodes: state.nodes.filter((n) => !removedSet.has(n.id)),
           edges: state.edges.filter(

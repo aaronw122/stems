@@ -10,6 +10,12 @@ const nodes = new Map<string, WeftNode>();
 const edges: WeftEdge[] = [];
 const doneList: WeftNode[] = [];
 
+// Phantom nodes live in a separate map — they are transient subagent
+// visualizations that must never be persisted to disk.
+const phantomNodes = new Map<string, WeftNode>();
+// Edges for phantom nodes live in the shared edges array (needed for dagre
+// layout and full_state broadcast) but are cleaned up by phantom helpers.
+
 // ── Persistence helpers ────────────────────────────────────────────────
 
 export function getStateSnapshot(): { nodes: WeftNode[]; edges: WeftEdge[]; doneList: WeftNode[] } {
@@ -108,6 +114,49 @@ export function addNode(node: WeftNode): void {
   scheduleSave(getStateSnapshot);
 }
 
+// ── Phantom node CRUD (transient, never persisted) ──────────────────
+
+/** Register a phantom (transient) node and its edge. Broadcasts to clients
+ *  but never calls scheduleSave — phantom nodes are ephemeral subagent
+ *  visualizations that must not be persisted to disk. */
+export function addPhantomNode(node: WeftNode, edge: WeftEdge): void {
+  phantomNodes.set(node.id, node);
+  edges.push(edge);
+  broadcast({ type: 'node_added', node, edge });
+}
+
+/** Update a phantom node in-place. Returns the updated node or null if not found.
+ *  Broadcasts the update but never calls scheduleSave. */
+export function updatePhantomNode(id: string, patch: Partial<WeftNode>): WeftNode | null {
+  const existing = phantomNodes.get(id);
+  if (!existing) return null;
+  const updated = { ...existing, ...patch } as WeftNode;
+  phantomNodes.set(id, updated);
+  broadcast({ type: 'node_updated', node: updated });
+  return updated;
+}
+
+/** Remove a phantom node and its edges. Returns the removed node or null.
+ *  Broadcasts the removal but never calls scheduleSave. */
+export function removePhantomNode(id: string): WeftNode | null {
+  const node = phantomNodes.get(id);
+  if (!node) return null;
+  phantomNodes.delete(id);
+  // Remove related edges from the shared edges array
+  for (let i = edges.length - 1; i >= 0; i--) {
+    if (edges[i]!.source === id || edges[i]!.target === id) {
+      edges.splice(i, 1);
+    }
+  }
+  broadcast({ type: 'node_removed', nodeId: id });
+  return node;
+}
+
+/** Look up a phantom node by id. */
+export function getPhantomNode(id: string): WeftNode | undefined {
+  return phantomNodes.get(id);
+}
+
 export function updateNode(id: string, patch: Partial<WeftNode>): WeftNode | null {
   const existing = nodes.get(id);
   if (!existing) return null;
@@ -136,11 +185,11 @@ export function removeNode(id: string): WeftNode | null {
 }
 
 export function getNode(id: string): WeftNode | undefined {
-  return nodes.get(id);
+  return nodes.get(id) ?? phantomNodes.get(id);
 }
 
 export function getAllNodes(): WeftNode[] {
-  return [...nodes.values()];
+  return [...nodes.values(), ...phantomNodes.values()];
 }
 
 export function getEdges(): WeftEdge[] {
