@@ -76,9 +76,17 @@ export function appendTerminalMessages(nodeId: string, messages: TerminalMessage
     merged = [...existing, ...messages];
   }
 
-  const trimmed = merged.length > MAX_SERVER_MESSAGES
-    ? merged.slice(merged.length - MAX_SERVER_MESSAGES)
-    : merged;
+  let trimmed: TerminalMessage[];
+  if (merged.length > MAX_SERVER_MESSAGES) {
+    const hasBanner = merged[0]?.type === 'session_banner';
+    if (hasBanner) {
+      trimmed = [merged[0]!, ...merged.slice(merged.length - (MAX_SERVER_MESSAGES - 1))];
+    } else {
+      trimmed = merged.slice(merged.length - MAX_SERVER_MESSAGES);
+    }
+  } else {
+    trimmed = merged;
+  }
   terminalBuffers.set(nodeId, trimmed);
 }
 

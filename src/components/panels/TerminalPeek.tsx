@@ -92,11 +92,17 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
 
   const messages = useTerminal((s) => s.buffers.get(nodeId) ?? EMPTY_MESSAGES);
 
-  // Get the node state to show thinking indicator
-  const nodeState = useGraph((s) => {
+  // Get the node data for thinking indicator + context bar
+  const nodeData = useGraph((s) => {
     const flowNode = s.nodes.find((n) => n.id === nodeId);
-    return (flowNode?.data as WeftNode | undefined)?.nodeState ?? 'idle';
+    return flowNode?.data as WeftNode | undefined;
   });
+  const nodeState = nodeData?.nodeState ?? 'idle';
+  const contextPercent = nodeData?.contextPercent ?? null;
+
+  // Find the session_banner message (may not be at index 0 — user prompt can arrive first)
+  const bannerMsg = messages.find(m => m.type === 'session_banner');
+  const bannerData = bannerMsg?.bannerData;
 
   // Show thinking indicator when node is running and last message isn't streaming text
   const lastMsg = messages[messages.length - 1];
@@ -393,8 +399,10 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
         className={`nowheel flex-1 overflow-y-auto px-4 py-3${isScrolling ? ' is-scrolling' : ''}`}
       >
         <pre className="whitespace-pre-wrap break-words font-mono" style={{ color: 'var(--term-text)', fontSize: `${fontSize}px`, lineHeight: '1.6' }}>
+          {/* Render banner first regardless of buffer position */}
+          {bannerMsg && <TerminalMessageRenderer key="banner" message={bannerMsg} />}
           {messages.map((msg, i) => (
-            <TerminalMessageRenderer key={i} message={msg} />
+            msg.type === 'session_banner' ? null : <TerminalMessageRenderer key={i} message={msg} />
           ))}
           {showThinking && <ThinkingIndicator nodeId={nodeId} />}
           {messages.length === 0 && (
@@ -496,6 +504,32 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
           listboxId={autocomplete.listboxId}
           textareaRef={inputRef}
         />
+      )}
+
+      {/* Status bar — below input, matches Claude CLI bottom bar */}
+      {bannerData && (
+        <div className="terminal-status-bar">
+          <span className="terminal-status-model">
+            {bannerData.modelDisplayName}
+          </span>
+          {' in '}
+          <span className="terminal-status-cwd">
+            {bannerData.cwd}
+          </span>
+          {contextPercent !== null && (
+            <>
+              <span className="terminal-status-divider"> | </span>
+              <span className="terminal-status-context">
+                Context remaining:{' '}
+                <span className="terminal-context-bar">
+                  {'█'.repeat(Math.round(contextPercent / 5))}
+                  {'░'.repeat(20 - Math.round(contextPercent / 5))}
+                </span>
+                {' '}{contextPercent.toFixed(1)}%
+              </span>
+            </>
+          )}
+        </div>
       )}
     </div>
   );

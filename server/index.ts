@@ -59,6 +59,7 @@ function makeRepoNode(repoPath: string): WeftNode {
     prState: null,
     costUsd: 0,
     tokenUsage: { input: 0, output: 0 },
+    contextPercent: null,
     x: 0,
     y: 0,
     repoPath,
@@ -87,6 +88,7 @@ function makeChildNode(
     prState: null,
     costUsd: 0,
     tokenUsage: { input: 0, output: 0 },
+    contextPercent: null,
     x: 0,
     y: 0,
   };

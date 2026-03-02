@@ -39,9 +39,17 @@ export const useTerminal = create<TerminalState>((set, get) => ({
         merged = [...existing, ...messages];
       }
 
-      const trimmed = merged.length > MAX_MESSAGES
-        ? merged.slice(merged.length - MAX_MESSAGES)
-        : merged;
+      let trimmed: TerminalMessage[];
+      if (merged.length > MAX_MESSAGES) {
+        const hasBanner = merged[0]?.type === 'session_banner';
+        if (hasBanner) {
+          trimmed = [merged[0]!, ...merged.slice(merged.length - (MAX_MESSAGES - 1))];
+        } else {
+          trimmed = merged.slice(merged.length - MAX_MESSAGES);
+        }
+      } else {
+        trimmed = merged;
+      }
       newBuffers.set(nodeId, trimmed);
       return { buffers: newBuffers };
     });
@@ -50,10 +58,18 @@ export const useTerminal = create<TerminalState>((set, get) => ({
   setMessages(nodeId: string, messages: TerminalMessage[]) {
     set((state) => {
       const newBuffers = new Map(state.buffers);
-      // Trim to MAX_MESSAGES, keeping newest
-      const trimmed = messages.length > MAX_MESSAGES
-        ? messages.slice(messages.length - MAX_MESSAGES)
-        : messages;
+      // Trim to MAX_MESSAGES, keeping newest (pin banner at index 0)
+      let trimmed: TerminalMessage[];
+      if (messages.length > MAX_MESSAGES) {
+        const hasBanner = messages[0]?.type === 'session_banner';
+        if (hasBanner) {
+          trimmed = [messages[0]!, ...messages.slice(messages.length - (MAX_MESSAGES - 1))];
+        } else {
+          trimmed = messages.slice(messages.length - MAX_MESSAGES);
+        }
+      } else {
+        trimmed = messages;
+      }
       newBuffers.set(nodeId, trimmed);
       return { buffers: newBuffers };
     });

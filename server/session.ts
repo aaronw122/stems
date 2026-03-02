@@ -1,6 +1,6 @@
 import { query, AbortError } from '@anthropic-ai/claude-agent-sdk';
-import type { Query, Options, SlashCommand } from '@anthropic-ai/claude-agent-sdk';
-import { updateNode, getNode, broadcast } from './state.ts';
+import type { Query, Options, SlashCommand, SDKSystemMessage } from '@anthropic-ai/claude-agent-sdk';
+import { updateNode, getNode, broadcast, broadcastTerminal } from './state.ts';
 import { createMessageProcessor } from './message-processor.ts';
 import { autoMoveIfComplete } from './completion.ts';
 
@@ -87,6 +87,7 @@ export async function spawnSession(
   // Build shared options (reused across turns)
   const baseOptions: Omit<Options, 'abortController' | 'resume'> = {
     cwd: repoPath,
+    model: 'claude-opus-4-6',
     permissionMode: 'bypassPermissions',
     allowDangerouslySkipPermissions: true,
     includePartialMessages: true,
@@ -169,12 +170,43 @@ async function consumeTurn(session: Session, queryInstance: Query): Promise<void
       if (msg.type === 'system' && 'subtype' in msg && msg.subtype === 'init') {
         session.sessionId = msg.session_id;
 
-        // Capture slash commands from initialization result for autocomplete
-        queryInstance.initializationResult().then((initResult) => {
+        // Capture slash commands and emit session banner from initialization result
+        queryInstance.initializationResult().then(async (initResult) => {
           session.slashCommands = initResult.commands;
           console.log(`[session:${nodeId}] captured ${initResult.commands.length} slash commands`);
+
+          // Capture init fields needed for the banner
+          const systemMsg = msg as SDKSystemMessage;
+          const claudeCodeVersion = systemMsg.claude_code_version;
+          const rawModel = systemMsg.model;
+          const cwd = systemMsg.cwd;
+
+          // Resolve display name from SDK's authoritative ModelInfo list
+          const activeModel = initResult.models.find(m => m.value === rawModel);
+          const displayName = activeModel?.displayName ?? rawModel;
+
+          // Check for upgrade (non-blocking, cached)
+          const { checkForUpdate } = await import('./version-check.ts');
+          const upgrade = await checkForUpdate(claudeCodeVersion);
+
+          // Emit the completed banner as a one-shot terminal message
+          broadcastTerminal(nodeId, [{
+            type: 'session_banner',
+            text: '',
+            bannerData: {
+              claudeCodeVersion,
+              model: rawModel,
+              modelDisplayName: displayName,
+              subscriptionType: initResult.account?.subscriptionType,
+              cwd,
+              upgradeAvailable: upgrade.available,
+              latestVersion: upgrade.latest,
+            },
+          }]);
+
+          console.log(`[session:${nodeId}] emitted session_banner: ${displayName}, ${initResult.account?.subscriptionType ?? 'unknown plan'}`);
         }).catch((err) => {
-          console.warn(`[session:${nodeId}] failed to capture slash commands:`, err);
+          console.warn(`[session:${nodeId}] failed to build session banner:`, err);
         });
       }
     }
