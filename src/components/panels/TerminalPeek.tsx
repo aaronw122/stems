@@ -156,12 +156,71 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
+      // Readline-style keybindings (Ctrl+key, no meta/alt/shift)
+      if (e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+        const el = inputRef.current;
+        if (!el) return;
+        const pos = el.selectionStart ?? 0;
+
+        switch (e.key) {
+          // Ctrl+U — kill line before cursor
+          case 'u': {
+            e.preventDefault();
+            const after = input.slice(pos);
+            setInput(after);
+            requestAnimationFrame(() => {
+              el.setSelectionRange(0, 0);
+              el.style.height = 'auto';
+              el.style.height = `${el.scrollHeight}px`;
+            });
+            return;
+          }
+          // Ctrl+K — kill from cursor to end of line
+          case 'k': {
+            e.preventDefault();
+            const before = input.slice(0, pos);
+            setInput(before);
+            requestAnimationFrame(() => {
+              el.setSelectionRange(pos, pos);
+              el.style.height = 'auto';
+              el.style.height = `${el.scrollHeight}px`;
+            });
+            return;
+          }
+          // Ctrl+W — kill word before cursor
+          case 'w': {
+            e.preventDefault();
+            const before = input.slice(0, pos);
+            const after = input.slice(pos);
+            const trimmed = before.replace(/\s+$/, '');
+            const wordStart = Math.max(0, trimmed.lastIndexOf(' ') + 1);
+            const newBefore = before.slice(0, wordStart);
+            setInput(newBefore + after);
+            requestAnimationFrame(() => {
+              el.setSelectionRange(wordStart, wordStart);
+              el.style.height = 'auto';
+              el.style.height = `${el.scrollHeight}px`;
+            });
+            return;
+          }
+          // Ctrl+L — scroll to bottom (terminal "clear" equivalent)
+          case 'l': {
+            e.preventDefault();
+            setAutoScroll(true);
+            if (scrollRef.current) {
+              scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+            }
+            return;
+          }
+        }
+      }
+
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         handleSubmit();
       }
     },
-    [handleSubmit],
+    [handleSubmit, input],
   );
 
   // Stop pointer events from reaching the canvas
