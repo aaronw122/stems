@@ -15,6 +15,8 @@ export interface TerminalMessage {
   toolName?: string;
   isSuccess?: boolean;
   costUsd?: number;
+  diffRemoved?: string;
+  diffAdded?: string;
 }
 
 // ── Node enums / union types ──────────────────────────────────────────

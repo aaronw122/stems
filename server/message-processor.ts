@@ -60,6 +60,26 @@ function extractTitle(text: string): string | null {
   return title.length >= 3 ? title : null;
 }
 
+// ── Diff formatting for Edit tool ───────────────────────────────────
+
+const DIFF_MAX_LINES = 20;
+const DIFF_MAX_CHARS = 2000;
+
+function formatDiffSide(content: string, prefix: string): string {
+  let text = content;
+  if (text.length > DIFF_MAX_CHARS) {
+    text = text.slice(0, DIFF_MAX_CHARS);
+  }
+  const allLines = content.split('\n');
+  const lines = text.split('\n');
+  const display = lines.length > DIFF_MAX_LINES ? lines.slice(0, DIFF_MAX_LINES) : lines;
+  let result = display.map(l => `${prefix} ${l}`).join('\n');
+  if (allLines.length > display.length) {
+    result += `\n${prefix} ... +${allLines.length - display.length} more lines`;
+  }
+  return result;
+}
+
 // ── Create message processor ────────────────────────────────────────
 
 export function createMessageProcessor(nodeId: string) {
@@ -187,7 +207,17 @@ export function createMessageProcessor(nodeId: string) {
             messages.push({ type: 'human_needed', text: questionText });
             setHumanNeeded('question', input);
           } else {
-            messages.push({ type: 'tool_use', text: name, toolName: name });
+            const msg: TerminalMessage = { type: 'tool_use', text: name, toolName: name };
+            if (name === 'Edit' && input && typeof input === 'object') {
+              const inp = input as Record<string, unknown>;
+              if (typeof inp.old_string === 'string') {
+                msg.diffRemoved = formatDiffSide(inp.old_string, '-');
+              }
+              if (typeof inp.new_string === 'string') {
+                msg.diffAdded = formatDiffSide(inp.new_string, '+');
+              }
+            }
+            messages.push(msg);
           }
 
           // Track file edits for overlap detection
