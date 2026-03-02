@@ -22,11 +22,14 @@ import {
   getDescendants,
   clearTerminalSubscriptions,
   removeFromDoneList,
+  hydrateState,
+  flushSave,
 } from './state.ts';
 import { spawnSession, hasSession, killSession, killAllSessions, sendInput } from './session.ts';
 import { getAllActiveFiles, clearNode as clearOverlapNode } from './overlap-tracker.ts';
 import { stopPolling as stopPRPolling, stopTracking as stopPRTracking } from './pr-tracker.ts';
 import { summarizeContext } from './context-summary.ts';
+import { loadWorkspace } from './persistence.ts';
 import { join, basename } from 'node:path';
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -329,6 +332,16 @@ async function handleMessage(ws: ServerWebSocket<unknown>, raw: string): Promise
   }
 }
 
+// ── Restore persisted workspace ──────────────────────────────────────
+
+const savedWorkspace = loadWorkspace();
+if (savedWorkspace) {
+  hydrateState(savedWorkspace);
+  console.log(`[startup] Restored workspace: ${savedWorkspace.nodes.length} node(s), ${savedWorkspace.doneList.length} done`);
+} else {
+  console.log('[startup] No saved workspace found, starting fresh');
+}
+
 // ── Server ───────────────────────────────────────────────────────────
 
 const server = Bun.serve({
@@ -449,15 +462,17 @@ console.log(`stems server listening on http://localhost:${server.port}`);
 // ── Graceful shutdown ────────────────────────────────────────────────
 
 process.on('SIGTERM', async () => {
-  console.log('[shutdown] SIGTERM received, killing sessions...');
+  console.log('[shutdown] SIGTERM received, saving workspace...');
   stopPRPolling();
+  await flushSave();
   await killAllSessions();
   process.exit(0);
 });
 
 process.on('SIGINT', async () => {
-  console.log('[shutdown] SIGINT received, killing sessions...');
+  console.log('[shutdown] SIGINT received, saving workspace...');
   stopPRPolling();
+  await flushSave();
   await killAllSessions();
   process.exit(0);
 });
