@@ -347,12 +347,12 @@ export function createMessageProcessor(nodeId: string) {
           const input = 'input' in block ? block.input : undefined;
 
           // When we see an Agent tool_use block, store the tool_use_id →
-          // subagent_type mapping so that task_started can correlate back
-          // to get the agent display name.
+          // description mapping so that task_started can correlate back
+          // to get a human-readable display name for the phantom node.
           if (name === 'Agent' && 'id' in block) {
             const inp = input && typeof input === 'object' ? input as Record<string, unknown> : {};
-            const subagentType = String(inp.subagent_type ?? 'Agent');
-            agentToolUseTypes.set(String(block.id), subagentType);
+            const displayName = String(inp.description ?? inp.subagent_type ?? 'Agent');
+            agentToolUseTypes.set(String(block.id), displayName);
           }
 
           // Precedence rule: AskUserQuestion emits human_needed, not tool_use

@@ -73,7 +73,7 @@ export function SubagentSummary({ parentNodeId }: SubagentSummaryProps) {
             </div>
             {info.currentActivity && (
               <div className="italic text-zinc-600">
-                {indent}<span className="text-zinc-700">&rdsh;</span> {info.currentActivity}
+                {indent}<span className="text-zinc-700">{'\u21B3'}</span> {info.currentActivity}
               </div>
             )}
           </div>
