@@ -30,6 +30,7 @@ import { getAllActiveFiles, clearNode as clearOverlapNode } from './overlap-trac
 import { stopPolling as stopPRPolling, stopTracking as stopPRTracking } from './pr-tracker.ts';
 import { summarizeContext } from './context-summary.ts';
 import { loadWorkspace } from './persistence.ts';
+import { getCustomSkills } from './skill-scanner.ts';
 import { join, basename } from 'node:path';
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -486,8 +487,8 @@ const server = Bun.serve({
         });
       }
 
-      // Session hasn't initialized yet — return hardcoded built-in commands
-      const fallbackCommands = [
+      // Session hasn't initialized yet — return hardcoded built-in commands + custom skills
+      const builtinCommands = [
         { name: 'help', description: 'Show available commands', argumentHint: '' },
         { name: 'clear', description: 'Clear conversation history', argumentHint: '' },
         { name: 'compact', description: 'Compact conversation to save context', argumentHint: '[instructions]' },
@@ -501,6 +502,12 @@ const server = Bun.serve({
         { name: 'memory', description: 'Edit CLAUDE.md memory files', argumentHint: '' },
         { name: 'permissions', description: 'View or manage permissions', argumentHint: '' },
       ];
+
+      // Merge custom skills — they take priority over hardcoded placeholders
+      const customSkills = getCustomSkills();
+      const customNames = new Set(customSkills.map((s) => s.name));
+      const dedupedBuiltins = builtinCommands.filter((c) => !customNames.has(c.name));
+      const fallbackCommands = [...dedupedBuiltins, ...customSkills];
 
       return new Response(JSON.stringify({ commands: fallbackCommands, source: 'fallback' }), {
         headers: { 'Content-Type': 'application/json' },
