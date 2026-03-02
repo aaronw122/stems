@@ -1,7 +1,7 @@
 ---
 title: "Subagent Abstraction"
 author: "human:aaron"
-version: 3
+version: 4
 created: 2026-03-02
 supersedes: "auto-subtask-nodes (v2)"
 ---
@@ -58,7 +58,7 @@ The SDK emits messages in this order for each subagent:
 
 Phantom nodes integrate with the existing message pipeline — no new `ServerMessage` variants required:
 
-- **Creation:** Reuses `node_added` with a `WeftNode` where `isPhantomSubagent: true`
+- **Creation:** Reuses `node_added` with a `WeftNode` where `type: 'phantom'` and `isPhantomSubagent: true`. The `type: 'phantom'` value drives React Flow component selection (`PhantomNode`), dagre layout sizing, and MiniMap coloring — the `isPhantomSubagent` flag is a secondary guard for code paths that check data properties rather than node type
 - **Updates:** Reuses `node_updated` — phantom-specific fields (`toolUseCount`, `totalTokens`, `currentActivity`) update via the standard path
 - **Removal:** Reuses `node_removed` — phantom nodes use a distinct removal path (2s delay after `task_notification`, then `node_removed`; never enters `doneList`)
 
@@ -70,7 +70,7 @@ Phantom nodes integrate with the existing message pipeline — no new `ServerMes
 - `subagentTaskId: string`
 
 ### useGraph.ts guards
-- `node_added` auto-select logic must skip nodes where `data.isPhantomSubagent` is true
+- `node_added` auto-select logic must skip nodes where `node.type === 'phantom'` (the existing auto-select condition checks `msg.node.type === 'feature' || msg.node.type === 'subtask'` — phantom nodes naturally excluded if not added to this check)
 
 ### FlowCanvas.tsx click guard
 - `FlowCanvas.onNodeClick` (the `NodeMouseHandler` passed to `ReactFlow`) must check `node.data.isPhantomSubagent` and skip `setSelectedNode` if true — phantom nodes are not selectable
@@ -99,10 +99,12 @@ Phantom nodes integrate with the existing message pipeline — no new `ServerMes
 
 No phantom node infrastructure exists in the codebase yet. The following must be built:
 
-- **`shared/types.ts`**: Add `isPhantomSubagent` flag and optional phantom fields (`toolUseCount`, `totalTokens`, `currentActivity`, `subagentTaskId`) to `WeftNode`
+- **`shared/types.ts`**: Add `'phantom'` to the `NodeType` union (`'repo' | 'feature' | 'subtask' | 'phantom'`). Add `isPhantomSubagent` flag and optional phantom fields (`toolUseCount`, `totalTokens`, `currentActivity`, `subagentTaskId`) to `WeftNode`
+- **`src/components/nodes/PhantomNode.tsx`**: Create a `PhantomNode` component that renders a stat card displaying: agent name, tool use count, token count, and current activity status line. No terminal view — pure visualization card
+- **`src/components/FlowCanvas.tsx`**: Register the phantom component in `nodeTypes`: `{ repo: RepoNode, feature: FeatureNode, subtask: SubtaskNode, phantom: PhantomNode }`
+- **`src/hooks/useGraph.ts`**: Add phantom node dimensions to dagre layout config (e.g., `PHANTOM_WIDTH` / `PHANTOM_HEIGHT` constants, and a `node.type === 'phantom'` branch in `getLayoutedElements` alongside the existing `isSubtask` branch). Guard `node_added` auto-select logic to skip nodes where `node.type === 'phantom'`
 - **`server/message-processor.ts`**: Add `else if` branches for `task_started`, `task_progress`, and `task_notification` subtypes inside the existing `case 'system':` block (currently only `subtype === 'init'` is handled; the rest silently fall through)
 - **`server/state.ts`**: Phantom nodes live in a separate `Map<string, WeftNode>` (not the main `nodes` map) with dedicated `addPhantomNode`/`updatePhantomNode`/`removePhantomNode` helpers that call `broadcast` but never `scheduleSave`. This ensures zero persistence leak. The existing `addNode`/`updateNode`/`removeNode` helpers remain unchanged
-- **`src/hooks/useGraph.ts`**: Guard `node_added` auto-select logic to skip nodes where `isPhantomSubagent` is true
 
 ## ENSURE
 1. When a feature spawns 3 subagents, parent terminal shows compact summary with 3 agent lines — not individual tool calls
