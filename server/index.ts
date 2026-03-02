@@ -421,6 +421,59 @@ const server = Bun.serve({
       }
     }
 
+    // File listing for autocomplete (gitignore-respecting)
+    const filesMatch = url.pathname.match(/^\/api\/files\/(.+)$/);
+    if (filesMatch) {
+      const nodeId = filesMatch[1]!;
+      const repoPath = findRepoPath(nodeId);
+      if (!repoPath) {
+        return new Response(JSON.stringify({ error: 'Could not resolve repo path' }), {
+          status: 404,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      const query = url.searchParams.get('q') ?? '';
+
+      try {
+        const proc = Bun.spawn(
+          ['git', 'ls-files', '--cached', '--others', '--exclude-standard'],
+          { cwd: repoPath, stdout: 'pipe', stderr: 'pipe' },
+        );
+        const [stdout, stderr, exitCode] = await Promise.all([
+          new Response(proc.stdout).text(),
+          new Response(proc.stderr).text(),
+          proc.exited,
+        ]);
+        if (exitCode !== 0) {
+          console.error(`[files] git ls-files failed (code ${exitCode}): ${stderr.trim()}`);
+          return new Response(JSON.stringify({ error: 'git ls-files failed' }), {
+            status: 500,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+
+        const lowerQuery = query.toLowerCase();
+        const files: string[] = [];
+        for (const line of stdout.split('\n')) {
+          if (!line) continue;
+          if (lowerQuery && !line.toLowerCase().includes(lowerQuery)) continue;
+          files.push(line);
+          if (files.length >= 100) break;
+        }
+
+        return new Response(JSON.stringify({ files, repoPath }), {
+          headers: { 'Content-Type': 'application/json' },
+        });
+      } catch (err) {
+        console.error('[files] error:', err);
+        return new Response(JSON.stringify({ error: String(err) }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+    }
+
     // Static file serving for production builds
     const filePath = url.pathname === '/' ? '/index.html' : url.pathname;
     const file = Bun.file(join('dist', filePath));
