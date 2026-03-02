@@ -70,6 +70,20 @@ Early-stage personal project. Prioritize simplicity — avoid over-engineering. 
 
 **Reviews and session notes go in `notes/`.** Use descriptive filenames like `notes/2026-02-28-<topic>.md`.
 
+### Plan → Worktree workflow
+
+**Every new plan gets its own worktree.** When creating a plan document in `plans/`, immediately:
+
+1. Create a worktree + branch: `git worktree add .claude/worktrees/<plan-name> -b feat/<plan-name>`
+2. Write the plan file inside that worktree (e.g., `.claude/worktrees/<plan-name>/plans/<plan-name>.md`)
+3. Commit the plan file on that branch
+
+**Why:** Plans written on the current branch pollute it with unrelated changes, block branch switching, and create merge confusion. Isolating from the start means the plan and its implementation live together on a dedicated branch — clean history, no stashing, no accidents.
+
+**When executing a plan**, the worktree already exists. Use `isolation: "worktree"` for subagents, or work directly in the plan's worktree.
+
+**Naming:** Branch and worktree name should match the plan filename. `plans/delete-all-node-types.md` → branch `feat/delete-all-node-types`, worktree `.claude/worktrees/delete-all-node-types`.
+
 ## Safety Rules
 
 **Branch check before any edits.** Before modifying any file, run `git branch --show-current`. If you're on `main` (or `master`), **stop and create a feature branch first.** All work goes through feature branches and PRs — no commits on main, no pushes to main.
