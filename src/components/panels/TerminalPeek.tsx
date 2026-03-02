@@ -297,7 +297,7 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
       >
         <span
           className="font-mono text-sm leading-5 select-none pt-px"
-          style={{ color: 'var(--term-tool-success)' }}
+          style={{ color: 'var(--term-text)' }}
         >
           ❯
         </span>
