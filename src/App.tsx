@@ -30,27 +30,34 @@ export default function App() {
   // ── Selected node (single source of truth: Zustand store) ──────────
   const selectedNodeId = useGraph((s) => s.selectedNodeId);
 
+  // Determine the selected node's type so we can skip terminal for repo nodes
+  const selectedNode = selectedNodeId
+    ? nodes.find((n) => n.id === selectedNodeId)
+    : null;
+  const selectedNodeType = selectedNode?.type;
+
   // Subscribe/unsubscribe terminal when selectedNodeId changes
   useEffect(() => {
-    if (selectedNodeId) {
+    // Don't subscribe to terminal for repo nodes (they don't have sessions)
+    if (selectedNodeId && selectedNodeType !== 'repo') {
       send({ type: 'subscribe_terminal', nodeId: selectedNodeId });
     }
     return () => {
-      if (selectedNodeId) {
+      if (selectedNodeId && selectedNodeType !== 'repo') {
         send({ type: 'unsubscribe_terminal', nodeId: selectedNodeId });
       }
     };
-  }, [selectedNodeId, send]);
+  }, [selectedNodeId, selectedNodeType, send]);
 
   // Focus management: capture focus before terminal opens, restore on close
   useEffect(() => {
-    if (selectedNodeId) {
+    if (selectedNodeId && selectedNodeType !== 'repo') {
       previousFocusRef.current = document.activeElement as HTMLElement | null;
     } else if (previousFocusRef.current) {
       previousFocusRef.current.focus();
       previousFocusRef.current = null;
     }
-  }, [selectedNodeId]);
+  }, [selectedNodeId, selectedNodeType]);
 
   // ── Handlers ────────────────────────────────────────────────────────
 
@@ -155,10 +162,10 @@ export default function App() {
     [selectedNodeId, send],
   );
 
-  // Get the title for the selected node
+  // Get the title for the selected node (only needed when terminal is shown)
   const selectedNodeTitle =
-    selectedNodeId
-      ? (nodes.find((n) => n.id === selectedNodeId)?.data as Record<string, unknown> | undefined)?.title as string ?? 'Terminal'
+    selectedNodeId && selectedNodeType !== 'repo'
+      ? (selectedNode?.data as Record<string, unknown> | undefined)?.title as string ?? 'Terminal'
       : 'Terminal';
 
   return (
@@ -202,7 +209,7 @@ export default function App() {
         />
 
         {/* Floating Terminal window — sibling of ReactFlow, not child */}
-        {selectedNodeId && (
+        {selectedNodeId && selectedNodeType !== 'repo' && (
           <TerminalPeek
             nodeId={selectedNodeId}
             nodeTitle={selectedNodeTitle}

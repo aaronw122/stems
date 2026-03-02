@@ -17,6 +17,22 @@ body {
   animation: pulse-red 2s infinite;
 }
 
+/* ── Figma-style canvas cursor (dark pointer, white outline) ── */
+
+.react-flow__pane,
+.react-flow__renderer,
+.react-flow__selectionpane {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='24' viewBox='0 0 18 24' fill='none'%3E%3Cpath d='M2 2L2 18L5.5 14.5L8.5 21.5L10.5 20.5L7.5 13.5L15 12L2 2Z' fill='%23444' stroke='white' stroke-width='2' stroke-linejoin='round'/%3E%3C/svg%3E") 2 2, default !important;
+}
+
+/* ── Marquee selection box ── */
+
+.react-flow__selection {
+  background: rgba(59, 130, 246, 0.08) !important;
+  border: 1px solid rgba(59, 130, 246, 0.5) !important;
+  border-radius: 0 !important;
+}
+
 .react-flow__node {
   font-size: 12px;
 }

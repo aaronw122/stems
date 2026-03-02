@@ -1,9 +1,10 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ReactFlow,
   Background,
   Controls,
   MiniMap,
+  SelectionMode,
   applyNodeChanges,
   applyEdgeChanges,
 } from '@xyflow/react';
@@ -92,6 +93,28 @@ export function FlowCanvas({ send, onSpawn }: FlowCanvasProps) {
     setDeleteConfirm({ isOpen: false, nodeId: '', nodeName: '', details: '' });
   }, []);
 
+  // ── Delete key handler (multi-select aware) ─────────────────────
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        const tag = (e.target as HTMLElement)?.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+
+        const firstSelectedRepo = nodes.find((n) => n.selected && n.type === 'repo');
+        if (!firstSelectedRepo) return;
+
+        e.preventDefault();
+        handleDeleteRequest(firstSelectedRepo.id);
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [nodes, handleDeleteRequest]);
+
+  const handlePaneClick = useCallback(() => {
+    setSelectedNode(null);
+  }, [setSelectedNode]);
+
   const handleUpdateTitle = useCallback(
     (nodeId: string, title: string) => {
       send({ type: 'update_title', nodeId, title });
@@ -173,7 +196,12 @@ export function FlowCanvas({ send, onSpawn }: FlowCanvasProps) {
       onEdgesChange={handleEdgesChange}
       onNodeClick={onNodeClick}
       onNodeDragStop={handleNodeDragStop}
+      onPaneClick={handlePaneClick}
       defaultEdgeOptions={defaultEdgeOptions}
+      deleteKeyCode={null}
+      panOnDrag={false}
+      selectionOnDrag
+      selectionMode={SelectionMode.Partial}
       panOnScroll
       zoomOnPinch
       zoomOnScroll={false}

@@ -114,129 +114,57 @@ The `case 'system'` block in `processMessage` also stays as-is — it calls `han
 
 No `prettyModelName()` helper is needed. The SDK provides `ModelInfo.displayName` (e.g. `"Opus 4.6"`) directly via `initializationResult().models`, and `session.ts` uses that authoritative value when building the banner (see Phase 1 above).
 
-### Phase 1b: Insert banner at index 0 on arrival & pin during trimming
+### Phase 1b: Pin `session_banner` during buffer trimming
 
-The banner is emitted inside `initializationResult().then()`, an async callback. The `for await` message loop can emit content messages before this resolves. If content arrives first and the banner is simply appended, it lands at index 1+ instead of index 0.
+Both the server and client buffers trim from the front (`merged.slice(merged.length - MAX)`), which means the banner — always the first message — is the first to be evicted on long sessions. Late-joining clients receiving `terminal_replay` would never see the model info.
 
-**Fix (arrival ordering):** In both `appendTerminalMessages` (server) and `appendMessages` (client), detect incoming `session_banner` messages and insert them at index 0 of the merged array rather than appending.
+**Fix:** When trimming, check if the first message is a `session_banner` and preserve it by slicing from index 1 instead of index 0, then prepending it back.
 
-**Fix (trimming):** When trimming, use `findIndex(m => m.type === 'session_banner')` instead of checking `merged[0]` — the banner may not be at index 0 if the insert-at-0 logic was bypassed during replay or edge cases. This makes pinning robust regardless of banner position.
-
-**server/state.ts** — Integrate with existing `assistant_text` coalescing — do not replace the whole function body. Banner insertion is an additional step layered on top of the existing merge logic:
+**server/state.ts** — In `appendTerminalMessages`, replace the trimming block:
 
 ```ts
-// ── Step 1: Run the existing assistant_text coalesce logic (unchanged) ──
-// This keeps streamed markdown rendering as a single block.
-let merged: TerminalMessage[];
-if (
-  existing.length > 0 &&
-  existing[existing.length - 1]!.type === 'assistant_text' &&
-  messages[0]!.type === 'assistant_text'
-) {
-  merged = existing.slice();
-  merged[merged.length - 1] = {
-    ...merged[merged.length - 1]!,
-    text: merged[merged.length - 1]!.text + messages[0]!.text,
-  };
-  for (let i = 1; i < messages.length; i++) merged.push(messages[i]!);
-} else {
-  merged = [...existing, ...messages];
-}
+// Current:
+const trimmed = merged.length > MAX_SERVER_MESSAGES
+  ? merged.slice(merged.length - MAX_SERVER_MESSAGES)
+  : merged;
 
-// ── Step 2: Banner insertion (new — runs AFTER coalescing) ──
-// If incoming messages contain a session_banner, pin it at index 0,
-// removing any previously inserted banner.
-const bannerIdx = merged.findIndex(
-  (m, i) => m.type === 'session_banner' && i >= existing.length  // only look in newly added portion
-);
-let withBanner: TerminalMessage[];
-if (bannerIdx !== -1) {
-  const banner = merged[bannerIdx]!;
-  const withoutAnyBanner = merged.filter(m => m.type !== 'session_banner');
-  withBanner = [banner, ...withoutAnyBanner];
-} else {
-  withBanner = merged;
-}
-
-// ── Step 3: Trim — pin session_banner if present ──
+// Fixed — pin session_banner at index 0:
 let trimmed: TerminalMessage[];
-if (withBanner.length > MAX_SERVER_MESSAGES) {
-  const bannerPos = withBanner.findIndex(m => m.type === 'session_banner');
-  if (bannerPos !== -1) {
-    const banner = withBanner[bannerPos]!;
-    const withoutBanner = [...withBanner.slice(0, bannerPos), ...withBanner.slice(bannerPos + 1)];
+if (merged.length > MAX_SERVER_MESSAGES) {
+  const hasBanner = merged[0]?.type === 'session_banner';
+  if (hasBanner) {
     // Keep banner + newest (MAX - 1) messages
-    trimmed = [banner, ...withoutBanner.slice(withoutBanner.length - (MAX_SERVER_MESSAGES - 1))];
+    trimmed = [merged[0]!, ...merged.slice(merged.length - (MAX_SERVER_MESSAGES - 1))];
   } else {
-    trimmed = withBanner.slice(withBanner.length - MAX_SERVER_MESSAGES);
+    trimmed = merged.slice(merged.length - MAX_SERVER_MESSAGES);
   }
 } else {
-  trimmed = withBanner;
+  trimmed = merged;
 }
 ```
 
-**src/hooks/useTerminal.ts** — Same pattern: integrate with existing `assistant_text` coalescing — do not replace the whole function body. Banner insertion is an additional step layered on top of the existing merge logic.
-
-**In `appendMessages`:**
+**src/hooks/useTerminal.ts** — Same fix in both `appendMessages` and `setMessages`:
 
 ```ts
-// ── Step 1: Run the existing assistant_text coalesce logic (unchanged) ──
-let merged: TerminalMessage[];
-if (
-  existing.length > 0 &&
-  existing[existing.length - 1]!.type === 'assistant_text' &&
-  messages[0]!.type === 'assistant_text'
-) {
-  merged = existing.slice();
-  merged[merged.length - 1] = {
-    ...merged[merged.length - 1]!,
-    text: merged[merged.length - 1]!.text + messages[0]!.text,
-  };
-  for (let i = 1; i < messages.length; i++) merged.push(messages[i]!);
-} else {
-  merged = [...existing, ...messages];
-}
-
-// ── Step 2: Banner insertion (new — runs AFTER coalescing) ──
-const bannerIdx = merged.findIndex(
-  (m, i) => m.type === 'session_banner' && i >= existing.length
-);
-let withBanner: TerminalMessage[];
-if (bannerIdx !== -1) {
-  const banner = merged[bannerIdx]!;
-  const withoutAnyBanner = merged.filter(m => m.type !== 'session_banner');
-  withBanner = [banner, ...withoutAnyBanner];
-} else {
-  withBanner = merged;
-}
-
-// ── Step 3: Trim — pin session_banner if present ──
+// In appendMessages — replace the trimming block:
 let trimmed: TerminalMessage[];
-if (withBanner.length > MAX_MESSAGES) {
-  const bannerPos = withBanner.findIndex(m => m.type === 'session_banner');
-  if (bannerPos !== -1) {
-    const banner = withBanner[bannerPos]!;
-    const withoutBanner = [...withBanner.slice(0, bannerPos), ...withBanner.slice(bannerPos + 1)];
-    trimmed = [banner, ...withoutBanner.slice(withoutBanner.length - (MAX_MESSAGES - 1))];
+if (merged.length > MAX_MESSAGES) {
+  const hasBanner = merged[0]?.type === 'session_banner';
+  if (hasBanner) {
+    trimmed = [merged[0]!, ...merged.slice(merged.length - (MAX_MESSAGES - 1))];
   } else {
-    trimmed = withBanner.slice(withBanner.length - MAX_MESSAGES);
+    trimmed = merged.slice(merged.length - MAX_MESSAGES);
   }
 } else {
-  trimmed = withBanner;
+  trimmed = merged;
 }
-```
 
-**In `setMessages`** — only trimming changes needed (no coalescing here, `setMessages` receives a full buffer):
-
-```ts
-// Trim — pin session_banner if present (use findIndex, not [0] check)
+// In setMessages — replace the trimming block:
 let trimmed: TerminalMessage[];
 if (messages.length > MAX_MESSAGES) {
-  const bannerPos = messages.findIndex(m => m.type === 'session_banner');
-  if (bannerPos !== -1) {
-    const banner = messages[bannerPos]!;
-    const withoutBanner = [...messages.slice(0, bannerPos), ...messages.slice(bannerPos + 1)];
-    trimmed = [banner, ...withoutBanner.slice(withoutBanner.length - (MAX_MESSAGES - 1))];
+  const hasBanner = messages[0]?.type === 'session_banner';
+  if (hasBanner) {
+    trimmed = [messages[0]!, ...messages.slice(messages.length - (MAX_MESSAGES - 1))];
   } else {
     trimmed = messages.slice(messages.length - MAX_MESSAGES);
   }
@@ -249,15 +177,7 @@ if (messages.length > MAX_MESSAGES) {
 
 ### Phase 2: Render the banner in TerminalPeek
 
-**src/components/panels/TerminalMessageRenderer.tsx** — Add a local `formatPlan` helper and a `session_banner` case:
-
-```tsx
-// Local helper — maps SDK subscription types to display labels
-function formatPlan(sub?: string): string {
-  const map: Record<string, string> = { claude_max: 'Max', claude_pro: 'Pro', free: 'Free' };
-  return map[sub ?? ''] ?? '';
-}
-```
+**src/components/panels/TerminalMessageRenderer.tsx** — Add a `session_banner` case:
 
 ```tsx
 case 'session_banner': {

@@ -7,7 +7,7 @@ interface RepoNodeData extends WeftNode {
   onDelete?: (nodeId: string) => void;
 }
 
-export function RepoNode({ data }: NodeProps) {
+export function RepoNode({ data, selected }: NodeProps) {
   const node = data as unknown as RepoNodeData;
   const repoPath = node.repoPath ?? '';
 
@@ -17,22 +17,8 @@ export function RepoNode({ data }: NodeProps) {
   const branch = node.branch ?? 'main';
 
   return (
-    <div className="group min-w-[200px] rounded-lg border-l-4 border-l-green-500 bg-zinc-800 px-4 py-3 shadow-lg">
-      <div className="flex items-center justify-between">
-        <div className="text-sm font-semibold text-zinc-100">{displayPath || 'Unknown Repo'}</div>
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            node.onDelete?.(node.id);
-          }}
-          className="ml-2 rounded p-0.5 text-zinc-500 opacity-0 transition-all hover:bg-red-600/20 hover:text-red-400 group-hover:opacity-100"
-          title="Remove repo from view"
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M18 6L6 18M6 6l12 12" />
-          </svg>
-        </button>
-      </div>
+    <div className={`group min-w-[200px] rounded-lg border-l-4 border-l-green-500 bg-zinc-800 px-4 py-3 shadow-lg ${selected ? 'ring-2 ring-green-500/50' : ''}`}>
+      <div className="text-sm font-semibold text-zinc-100">{displayPath || 'Unknown Repo'}</div>
       <div className="mt-1 flex items-center justify-between">
         <span className="text-xs text-zinc-400">{branch}</span>
         <button
