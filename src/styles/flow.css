@@ -189,3 +189,13 @@ body {
   color: var(--term-error-text);
   padding: 1px 0;
 }
+
+/* ── Autocomplete Dropdown ── */
+
+.autocomplete-dropdown {
+  box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.autocomplete-item:hover {
+  background: var(--term-user-bg);
+}
