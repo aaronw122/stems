@@ -25,11 +25,12 @@ import {
   hydrateState,
   flushSave,
 } from './state.ts';
-import { spawnSession, hasSession, killSession, killAllSessions, sendInput, generateFeatureTitle } from './session.ts';
+import { spawnSession, hasSession, killSession, killAllSessions, sendInput, getSlashCommands, generateFeatureTitle } from './session.ts';
 import { getAllActiveFiles, clearNode as clearOverlapNode } from './overlap-tracker.ts';
 import { stopPolling as stopPRPolling, stopTracking as stopPRTracking } from './pr-tracker.ts';
 import { summarizeContext } from './context-summary.ts';
 import { loadWorkspace } from './persistence.ts';
+import { getCustomSkills } from './skill-scanner.ts';
 import { join, basename } from 'node:path';
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -422,6 +423,98 @@ const server = Bun.serve({
           headers: { 'Content-Type': 'application/json' },
         });
       }
+    }
+
+    // File listing for autocomplete (gitignore-respecting)
+    const filesMatch = url.pathname.match(/^\/api\/files\/(.+)$/);
+    if (filesMatch) {
+      const nodeId = filesMatch[1]!;
+      const repoPath = findRepoPath(nodeId);
+      if (!repoPath) {
+        return new Response(JSON.stringify({ error: 'Could not resolve repo path' }), {
+          status: 404,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      const query = url.searchParams.get('q') ?? '';
+
+      try {
+        const proc = Bun.spawn(
+          ['git', 'ls-files', '--cached', '--others', '--exclude-standard'],
+          { cwd: repoPath, stdout: 'pipe', stderr: 'pipe' },
+        );
+        const [stdout, stderr, exitCode] = await Promise.all([
+          new Response(proc.stdout).text(),
+          new Response(proc.stderr).text(),
+          proc.exited,
+        ]);
+        if (exitCode !== 0) {
+          console.error(`[files] git ls-files failed (code ${exitCode}): ${stderr.trim()}`);
+          return new Response(JSON.stringify({ error: 'git ls-files failed' }), {
+            status: 500,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+
+        const lowerQuery = query.toLowerCase();
+        const files: string[] = [];
+        for (const line of stdout.split('\n')) {
+          if (!line) continue;
+          if (lowerQuery && !line.toLowerCase().includes(lowerQuery)) continue;
+          files.push(line);
+          if (files.length >= 100) break;
+        }
+
+        return new Response(JSON.stringify({ files, repoPath }), {
+          headers: { 'Content-Type': 'application/json' },
+        });
+      } catch (err) {
+        console.error('[files] error:', err);
+        return new Response(JSON.stringify({ error: String(err) }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+    }
+
+    // Slash commands for autocomplete
+    const commandsMatch = url.pathname.match(/^\/api\/commands\/(.+)$/);
+    if (commandsMatch) {
+      const nodeId = commandsMatch[1]!;
+      const commands = getSlashCommands(nodeId);
+
+      if (commands) {
+        return new Response(JSON.stringify({ commands, source: 'session' }), {
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      // Session hasn't initialized yet — return hardcoded built-in commands + custom skills
+      const builtinCommands = [
+        { name: 'help', description: 'Show available commands', argumentHint: '' },
+        { name: 'clear', description: 'Clear conversation history', argumentHint: '' },
+        { name: 'compact', description: 'Compact conversation to save context', argumentHint: '[instructions]' },
+        { name: 'cost', description: 'Show token usage and cost', argumentHint: '' },
+        { name: 'model', description: 'Switch or display the current model', argumentHint: '[model-name]' },
+        { name: 'status', description: 'Show session status', argumentHint: '' },
+        { name: 'review', description: 'Review a pull request', argumentHint: '[pr-url]' },
+        { name: 'bug', description: 'Report a bug', argumentHint: '[description]' },
+        { name: 'init', description: 'Initialize project configuration', argumentHint: '' },
+        { name: 'config', description: 'Open or manage configuration', argumentHint: '' },
+        { name: 'memory', description: 'Edit CLAUDE.md memory files', argumentHint: '' },
+        { name: 'permissions', description: 'View or manage permissions', argumentHint: '' },
+      ];
+
+      // Merge custom skills — they take priority over hardcoded placeholders
+      const customSkills = getCustomSkills();
+      const customNames = new Set(customSkills.map((s) => s.name));
+      const dedupedBuiltins = builtinCommands.filter((c) => !customNames.has(c.name));
+      const fallbackCommands = [...dedupedBuiltins, ...customSkills];
+
+      return new Response(JSON.stringify({ commands: fallbackCommands, source: 'fallback' }), {
+        headers: { 'Content-Type': 'application/json' },
+      });
     }
 
     // Static file serving for production builds

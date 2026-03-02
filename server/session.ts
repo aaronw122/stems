@@ -1,5 +1,5 @@
 import { query, AbortError } from '@anthropic-ai/claude-agent-sdk';
-import type { Query, Options } from '@anthropic-ai/claude-agent-sdk';
+import type { Query, Options, SlashCommand } from '@anthropic-ai/claude-agent-sdk';
 import { updateNode, getNode, broadcast } from './state.ts';
 import { createMessageProcessor } from './message-processor.ts';
 import { autoMoveIfComplete } from './completion.ts';
@@ -15,6 +15,7 @@ interface Session {
   baseOptions: Omit<Options, 'abortController' | 'resume'>;
   processor: ReturnType<typeof createMessageProcessor>;
   abortController: AbortController | null;  // non-null only during an active turn
+  slashCommands: SlashCommand[] | null;  // captured from SDK init, used for autocomplete
 }
 
 const sessions = new Map<string, Session>();
@@ -109,6 +110,7 @@ export async function spawnSession(
     baseOptions,
     processor,
     abortController: null,
+    slashCommands: null,
   };
   sessions.set(nodeId, session);
 
@@ -166,6 +168,14 @@ async function consumeTurn(session: Session, queryInstance: Query): Promise<void
       // Capture session_id from init message for future resume calls
       if (msg.type === 'system' && 'subtype' in msg && msg.subtype === 'init') {
         session.sessionId = msg.session_id;
+
+        // Capture slash commands from initialization result for autocomplete
+        queryInstance.initializationResult().then((initResult) => {
+          session.slashCommands = initResult.commands;
+          console.log(`[session:${nodeId}] captured ${initResult.commands.length} slash commands`);
+        }).catch((err) => {
+          console.warn(`[session:${nodeId}] failed to capture slash commands:`, err);
+        });
       }
     }
   } catch (err: unknown) {
@@ -256,6 +266,13 @@ export function sendInput(nodeId: string, text: string): void {
 
 export function hasSession(nodeId: string): boolean {
   return sessions.has(nodeId);
+}
+
+// ── Query slash commands ─────────────────────────────────────────────
+
+export function getSlashCommands(nodeId: string): SlashCommand[] | null {
+  const session = sessions.get(nodeId);
+  return session?.slashCommands ?? null;
 }
 
 // ── Kill a session ──────────────────────────────────────────────────
