@@ -190,6 +190,21 @@ body {
   padding: 1px 0;
 }
 
+/* ── Ghost Text Autocomplete ── */
+
+.terminal-ghost-wrapper {
+  display: grid;
+}
+
+.terminal-ghost-mirror {
+  grid-area: 1 / 1;
+  pointer-events: none;
+}
+
+.terminal-ghost-wrapper textarea {
+  grid-area: 1 / 1;
+}
+
 /* ── Autocomplete Dropdown ── */
 
 .autocomplete-dropdown {
