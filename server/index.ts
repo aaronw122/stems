@@ -24,6 +24,8 @@ import {
   removeFromDoneList,
   hydrateState,
   flushSave,
+  removePhantomNode,
+  getPhantomNode,
 } from './state.ts';
 import { spawnSession, hasSession, killSession, killAllSessions, sendInput, getSlashCommands, generateFeatureTitle } from './session.ts';
 import { getAllActiveFiles, clearNode as clearOverlapNode } from './overlap-tracker.ts';
@@ -228,13 +230,17 @@ async function handleMessage(ws: ServerWebSocket<unknown>, raw: string): Promise
       clearOverlapNode(msg.nodeId);
       stopPRTracking(msg.nodeId);
       clearTerminalBuffer(msg.nodeId);
+      // Phantom nodes live in a separate map — try phantom first, then main
+      const phantomRemoved = getPhantomNode(msg.nodeId) ? removePhantomNode(msg.nodeId) : null;
+      if (phantomRemoved) {
+        // Phantom nodes are transient — never enter the done list.
+        // removePhantomNode already broadcasts node_removed.
+        break;
+      }
       const removed = removeNode(msg.nodeId);
       if (removed) {
-        // Phantom subagent nodes are transient — don't persist them to the done list
-        if (!removed.isPhantomSubagent) {
-          addToDoneList(removed);
-          broadcast({ type: 'done_list_updated', doneList: getDoneList() });
-        }
+        addToDoneList(removed);
+        broadcast({ type: 'done_list_updated', doneList: getDoneList() });
         broadcast({ type: 'node_removed', nodeId: msg.nodeId });
       }
       break;
@@ -345,8 +351,10 @@ const savedWorkspace = await loadWorkspace();
 if (savedWorkspace) {
   hydrateState(savedWorkspace);
 
-  // Sweep out phantom subagent nodes that leaked into persistence via updateNode.
-  // These are transient visualization nodes that should not survive a restart.
+  // Legacy cleanup: remove any phantom subagent nodes that leaked into
+  // persistence from the previous implementation (before phantom nodes were
+  // stored in a separate in-memory map). Safe to remove once all workspaces
+  // have been cleaned.
   const phantomIds = getAllNodes()
     .filter((n) => n.isPhantomSubagent)
     .map((n) => n.id);
@@ -354,7 +362,7 @@ if (savedWorkspace) {
     removeNode(id);
   }
   if (phantomIds.length > 0) {
-    console.log(`[startup] Cleaned up ${phantomIds.length} phantom subagent node(s)`);
+    console.log(`[startup] Cleaned up ${phantomIds.length} legacy phantom node(s) from persistence`);
   }
 
   console.log(`[startup] Restored workspace: ${savedWorkspace.nodes.length - phantomIds.length} node(s), ${savedWorkspace.doneList.length} done`);
