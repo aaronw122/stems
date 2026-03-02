@@ -63,6 +63,7 @@ export interface WeftNode {
 
   costUsd: number;
   tokenUsage: { input: number; output: number };
+  contextPercent: number | null;
 
   x: number;
   y: number;

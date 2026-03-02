@@ -169,8 +169,6 @@ body {
 /* ── Session banner ──────────────────────────────────────────────── */
 
 .terminal-banner {
-  display: flex;
-  gap: 12px;
   padding: 8px 0 12px;
   margin-bottom: 8px;
   border-bottom: 1px solid var(--term-input-border);
@@ -195,6 +193,42 @@ body {
   color: var(--term-tool-error);
   font-size: 0.85em;
   margin-top: 2px;
+}
+
+/* ── Status bar (bottom, matches Claude CLI) ──────────────────── */
+
+.terminal-status-bar {
+  padding: 4px 16px;
+  font-size: 11px;
+  font-family: inherit;
+  color: var(--term-text-dim);
+  border-top: 1px solid var(--term-input-border);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.terminal-status-model {
+  color: var(--term-text);
+  font-weight: 500;
+}
+
+.terminal-status-cwd {
+  color: var(--term-text-dim);
+}
+
+.terminal-status-divider {
+  color: var(--term-text-dim);
+  opacity: 0.5;
+}
+
+.terminal-status-context {
+  color: var(--term-text-dim);
+}
+
+.terminal-context-bar {
+  letter-spacing: -1px;
+  font-size: 10px;
 }
 
 /* ── Terminal Message Types ── */

@@ -10,6 +10,7 @@ import type {
   SDKPartialAssistantMessage,
   SDKResultSuccess,
   SDKResultError,
+  ModelUsage,
   SDKSystemMessage,
   SDKTaskStartedMessage,
   SDKTaskProgressMessage,
@@ -174,6 +175,7 @@ export function createMessageProcessor(nodeId: string) {
       prState: null,
       costUsd: 0,
       tokenUsage: { input: 0, output: 0 },
+      contextPercent: null,
       x: 0,
       y: 0,
       isPhantomSubagent: true,
@@ -459,12 +461,25 @@ export function createMessageProcessor(nodeId: string) {
 
     const node = getNode(nodeId);
     if (node) {
+      // Extract context window from modelUsage (keyed by model ID)
+      const modelUsageEntry: ModelUsage | undefined = Object.values(msg.modelUsage)[0];
+      const contextWindow = modelUsageEntry?.contextWindow ?? null;
+
+      // Context % = how much of the window remains.
+      // input_tokens on the latest result reflects the full conversation size.
+      let contextPercent: number | null = null;
+      if (contextWindow && contextWindow > 0) {
+        const used = msg.usage.input_tokens + msg.usage.output_tokens;
+        contextPercent = Math.max(0, Math.min(100, ((contextWindow - used) / contextWindow) * 100));
+      }
+
       const updated = updateNode(nodeId, {
         costUsd: node.costUsd + msg.total_cost_usd,
         tokenUsage: {
           input: node.tokenUsage.input + msg.usage.input_tokens,
           output: node.tokenUsage.output + msg.usage.output_tokens,
         },
+        contextPercent,
       });
       if (updated) {
         broadcast({ type: 'node_updated', node: updated });

@@ -65,6 +65,7 @@ export function toWeftNode(persisted: PersistedNode): WeftNode {
     humanNeededPayload: null,
     errorInfo: null,
     overlap: { hasOverlap: false, overlappingNodes: [] },
+    contextPercent: null,
     x: 0,
     y: 0,
   };

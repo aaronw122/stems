@@ -87,6 +87,7 @@ export async function spawnSession(
   // Build shared options (reused across turns)
   const baseOptions: Omit<Options, 'abortController' | 'resume'> = {
     cwd: repoPath,
+    model: 'claude-opus-4-6',
     permissionMode: 'bypassPermissions',
     allowDangerouslySkipPermissions: true,
     includePartialMessages: true,

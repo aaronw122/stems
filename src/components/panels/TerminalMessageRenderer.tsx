@@ -196,22 +196,23 @@ export function TerminalMessageRenderer({ message }: TerminalMessageRendererProp
       const planLabel = formatPlan(b.subscriptionType);
       return (
         <div className="terminal-banner">
-          <div className="terminal-banner-info">
-            <div className="terminal-banner-title">
-              Claude Code v{b.claudeCodeVersion}
-            </div>
-            <div className="terminal-banner-meta">
-              {b.modelDisplayName}{planLabel && ` · Claude ${planLabel}`}
-            </div>
-            <div className="terminal-banner-cwd">
-              {b.cwd}
-            </div>
-            {b.upgradeAvailable && (
-              <div className="terminal-banner-upgrade">
-                v{b.latestVersion} available
-              </div>
-            )}
+          <span className="terminal-banner-title">
+            Claude Code
+          </span>{' '}
+          <span className="terminal-banner-meta">
+            v{b.claudeCodeVersion}
+          </span>
+          <div className="terminal-banner-meta">
+            {b.modelDisplayName}{planLabel && ` · Claude ${planLabel}`}
           </div>
+          <div className="terminal-banner-cwd">
+            {b.cwd}
+          </div>
+          {b.upgradeAvailable && (
+            <div className="terminal-banner-upgrade">
+              ↑ v{b.latestVersion} available
+            </div>
+          )}
         </div>
       );
     }
