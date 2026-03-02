@@ -86,14 +86,15 @@ export function TerminalMessageRenderer({ message }: TerminalMessageRendererProp
             <span style={{ color: 'var(--term-tool-success)' }}>&#9679;</span>
             <span>
               {message.toolName && (
-                <span
-                  className="mr-1.5"
-                  style={{ color: 'var(--term-tool-name)' }}
-                >
+                <span style={{ color: 'var(--term-tool-name)' }}>
                   {message.toolName}
                 </span>
               )}
-              <span style={{ color: 'var(--term-text-dim)' }}>{message.text}</span>
+              {message.text && (
+                <span style={{ color: 'var(--term-text-dim)' }}>
+                  ({message.text})
+                </span>
+              )}
             </span>
           </div>
           {(message.diffRemoved || message.diffAdded) && (
