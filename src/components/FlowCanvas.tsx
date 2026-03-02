@@ -57,40 +57,75 @@ export function FlowCanvas({ send, onSpawn }: FlowCanvasProps) {
   // ── Delete confirmation state ─────────────────────────────────────
   const [deleteConfirm, setDeleteConfirm] = useState<{
     isOpen: boolean;
-    nodeId: string;
-    nodeName: string;
+    nodeIds: string[];
+    title: string;
+    message: string;
     details: string;
-  }>({ isOpen: false, nodeId: '', nodeName: '', details: '' });
+  }>({ isOpen: false, nodeIds: [], title: '', message: '', details: '' });
 
   const handleDeleteRequest = useCallback(
-    (nodeId: string) => {
-      const descendantIds = getDescendantIds(nodeId, edges);
-      const nodeData = nodes.find((n) => n.id === nodeId);
-      const nodeName = (nodeData?.data as Record<string, unknown> | undefined)?.title as string ?? 'this repo';
+    (...requestedIds: string[]) => {
+      // Deduplicate: skip nodes that are already descendants of another selected node
+      const allDescendants = new Set<string>();
+      for (const id of requestedIds) {
+        for (const desc of getDescendantIds(id, edges)) {
+          allDescendants.add(desc);
+        }
+      }
+      const rootIds = requestedIds.filter((id) => !allDescendants.has(id));
 
+      // Collect all nodes that will be removed (roots + their descendants)
+      const allRemovedIds = new Set(rootIds);
+      for (const id of rootIds) {
+        for (const desc of getDescendantIds(id, edges)) {
+          allRemovedIds.add(desc);
+        }
+      }
+
+      // Build title, message, and details
+      const nodeTypeLabel = (type?: string) =>
+        type === 'repo' ? 'repo' : type === 'feature' ? 'feature' : type === 'subtask' ? 'subtask' : 'node';
+
+      let title: string;
+      let message: string;
+      if (rootIds.length === 1) {
+        const node = nodes.find((n) => n.id === rootIds[0]);
+        const name = (node?.data as Record<string, unknown> | undefined)?.title as string ?? 'this node';
+        title = `Remove ${nodeTypeLabel(node?.type).replace(/^./, (c) => c.toUpperCase())}`;
+        message = `Remove ${name} from the Stems view?`;
+      } else {
+        title = `Remove ${rootIds.length} Nodes`;
+        message = `Remove ${rootIds.length} selected nodes from the Stems view?`;
+      }
+
+      const descendantCount = allRemovedIds.size - rootIds.length;
       let details = '';
-      if (descendantIds.length > 0) {
-        const descendants = descendantIds.map((id) => nodes.find((n) => n.id === id));
-        const featureCount = descendants.filter((n) => n?.type === 'feature').length;
-        const subtaskCount = descendants.filter((n) => n?.type === 'subtask').length;
+      if (descendantCount > 0) {
+        const descendantNodes = [...allRemovedIds]
+          .filter((id) => !rootIds.includes(id))
+          .map((id) => nodes.find((n) => n.id === id));
+        const featureCount = descendantNodes.filter((n) => n?.type === 'feature').length;
+        const subtaskCount = descendantNodes.filter((n) => n?.type === 'subtask').length;
         const parts: string[] = [];
         if (featureCount > 0) parts.push(`${featureCount} feature${featureCount > 1 ? 's' : ''}`);
         if (subtaskCount > 0) parts.push(`${subtaskCount} subtask${subtaskCount > 1 ? 's' : ''}`);
-        details = `${nodeName} and ${descendantIds.length} child node${descendantIds.length > 1 ? 's' : ''} (${parts.join(', ')}) will be removed. Active sessions will be terminated.`;
+        details = `${descendantCount} child node${descendantCount > 1 ? 's' : ''} (${parts.join(', ')}) will also be removed. Active sessions will be terminated.`;
       }
 
-      setDeleteConfirm({ isOpen: true, nodeId, nodeName, details });
+      setDeleteConfirm({ isOpen: true, nodeIds: rootIds, title, message, details });
     },
     [nodes, edges],
   );
 
   const handleDeleteConfirm = useCallback(() => {
-    send({ type: 'delete_tree', nodeId: deleteConfirm.nodeId });
-    setDeleteConfirm({ isOpen: false, nodeId: '', nodeName: '', details: '' });
-  }, [send, deleteConfirm.nodeId]);
+    for (const nodeId of deleteConfirm.nodeIds) {
+      send({ type: 'delete_tree', nodeId });
+    }
+    setDeleteConfirm({ isOpen: false, nodeIds: [], title: '', message: '', details: '' });
+  }, [send, deleteConfirm.nodeIds]);
 
   const handleDeleteCancel = useCallback(() => {
-    setDeleteConfirm({ isOpen: false, nodeId: '', nodeName: '', details: '' });
+    setDeleteConfirm({ isOpen: false, nodeIds: [], title: '', message: '', details: '' });
   }, []);
 
   // ── Delete key handler (multi-select aware) ─────────────────────
@@ -100,11 +135,11 @@ export function FlowCanvas({ send, onSpawn }: FlowCanvasProps) {
         const tag = (e.target as HTMLElement)?.tagName;
         if (tag === 'INPUT' || tag === 'TEXTAREA') return;
 
-        const firstSelectedRepo = nodes.find((n) => n.selected && n.type === 'repo');
-        if (!firstSelectedRepo) return;
+        const selectedNodes = nodes.filter((n) => n.selected);
+        if (selectedNodes.length === 0) return;
 
         e.preventDefault();
-        handleDeleteRequest(firstSelectedRepo.id);
+        handleDeleteRequest(...selectedNodes.map((n) => n.id));
       }
     }
     window.addEventListener('keydown', handleKeyDown);
@@ -180,8 +215,8 @@ export function FlowCanvas({ send, onSpawn }: FlowCanvasProps) {
     <>
     <ConfirmDialog
       isOpen={deleteConfirm.isOpen}
-      title="Remove Repo"
-      message={`Remove ${deleteConfirm.nodeName} from the Stems view?`}
+      title={deleteConfirm.title}
+      message={deleteConfirm.message}
       details={deleteConfirm.details || undefined}
       confirmLabel="Remove"
       onConfirm={handleDeleteConfirm}
