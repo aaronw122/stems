@@ -114,6 +114,38 @@ body {
   background: color-mix(in srgb, var(--term-border) 60%, transparent);
 }
 
+/* ── Terminal Scrollbar ── */
+
+.terminal-floating-window {
+  scrollbar-gutter: stable;
+}
+
+.terminal-floating-window * {
+  scrollbar-width: none;          /* Firefox: hidden by default */
+}
+
+.terminal-floating-window *::-webkit-scrollbar {
+  width: 0;                       /* WebKit: hidden by default */
+}
+
+.terminal-floating-window .is-scrolling {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+}
+
+.terminal-floating-window .is-scrolling::-webkit-scrollbar {
+  width: 6px;
+}
+
+.terminal-floating-window .is-scrolling::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.terminal-floating-window .is-scrolling::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+}
+
 /* ── Terminal Message Types ── */
 
 .term-msg-user {

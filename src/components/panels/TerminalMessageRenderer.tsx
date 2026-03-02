@@ -16,13 +16,13 @@ function markdownToHtml(text: string): string {
 
   // 2. Fenced code blocks (```...```) — preserve contents, strip lang tag
   html = html.replace(/```\w*\n([\s\S]*?)```/g, (_, code) =>
-    `<code style="background:rgba(255,255,255,0.08);padding:2px 4px;border-radius:3px">${code.trimEnd()}</code>`
+    `<code style="color:#a2d2fb;background:rgba(255,255,255,0.08);padding:2px 4px;border-radius:3px">${code.trimEnd()}</code>`
   );
 
   // 3. Inline code (`...`)
   html = html.replace(
     /`([^`]+)`/g,
-    '<code style="background:rgba(255,255,255,0.08);padding:0 3px;border-radius:2px">$1</code>',
+    '<code style="color:#a2d2fb;background:rgba(255,255,255,0.08);padding:0 3px;border-radius:2px">$1</code>',
   );
 
   // 4. Bold (**...**)

@@ -65,6 +65,8 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
   const [input, setInput] = useState('');
   const [autoScroll, setAutoScroll] = useState(true);
   const [fontSize, setFontSize] = useState(12);
+  const [isScrolling, setIsScrolling] = useState(false);
+  const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -132,12 +134,16 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
     }
   }, [messages, autoScroll]);
 
-  // Detect scroll position to toggle auto-scroll
+  // Detect scroll position to toggle auto-scroll + show scrollbar
   const handleScroll = useCallback(() => {
     if (!scrollRef.current) return;
     const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
     const atBottom = scrollHeight - scrollTop - clientHeight < 40;
     setAutoScroll(atBottom);
+
+    setIsScrolling(true);
+    if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
+    scrollTimeoutRef.current = setTimeout(() => setIsScrolling(false), 1000);
   }, []);
 
   const handleSubmit = useCallback(() => {
@@ -276,7 +282,7 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
       <div
         ref={scrollRef}
         onScroll={handleScroll}
-        className="nowheel flex-1 overflow-y-auto px-4 py-3"
+        className={`nowheel flex-1 overflow-y-auto px-4 py-3${isScrolling ? ' is-scrolling' : ''}`}
       >
         <pre className="whitespace-pre-wrap break-words font-mono" style={{ color: 'var(--term-text)', fontSize: `${fontSize}px`, lineHeight: '1.6' }}>
           {messages.map((msg, i) => (
