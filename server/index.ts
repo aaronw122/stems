@@ -25,7 +25,7 @@ import {
   hydrateState,
   flushSave,
 } from './state.ts';
-import { spawnSession, hasSession, killSession, killAllSessions, sendInput, getSlashCommands } from './session.ts';
+import { spawnSession, hasSession, killSession, killAllSessions, sendInput, getSlashCommands, generateFeatureTitle } from './session.ts';
 import { getAllActiveFiles, clearNode as clearOverlapNode } from './overlap-tracker.ts';
 import { stopPolling as stopPRPolling, stopTracking as stopPRTracking } from './pr-tracker.ts';
 import { summarizeContext } from './context-summary.ts';
@@ -302,6 +302,9 @@ async function handleMessage(ws: ServerWebSocket<unknown>, raw: string): Promise
           // Store the prompt on the node for future context
           if (node) {
             updateNode(nodeId, { prompt: payload.text });
+
+            // Fire-and-forget: generate a smart title via LLM
+            generateFeatureTitle(nodeId, payload.text, repoPath);
           }
 
           broadcastTerminal(nodeId, [{ type: 'user_message', text: payload.text }]);
