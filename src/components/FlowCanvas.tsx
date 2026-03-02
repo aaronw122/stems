@@ -192,6 +192,7 @@ export function FlowCanvas({ send, onSpawn }: FlowCanvasProps) {
       onNodeClick={onNodeClick}
       onNodeDragStop={handleNodeDragStop}
       defaultEdgeOptions={defaultEdgeOptions}
+      deleteKeyCode={null}
       panOnScroll
       zoomOnPinch
       zoomOnScroll={false}
