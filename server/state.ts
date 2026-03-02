@@ -1,11 +1,40 @@
 import type { ServerWebSocket } from 'bun';
 import type { WeftNode, WeftEdge, ServerMessage, TerminalMessage } from '../shared/types.ts';
+import { scheduleSave, flushSave } from './persistence.ts';
+
+export { flushSave };
 
 // ── In-memory state ──────────────────────────────────────────────────
 
 const nodes = new Map<string, WeftNode>();
 const edges: WeftEdge[] = [];
 const doneList: WeftNode[] = [];
+
+// ── Persistence helpers ────────────────────────────────────────────────
+
+export function getStateSnapshot(): { nodes: WeftNode[]; edges: WeftEdge[]; doneList: WeftNode[] } {
+  return {
+    nodes: [...nodes.values()],
+    edges: [...edges],
+    doneList: [...doneList],
+  };
+}
+
+export function hydrateState(data: { nodes: WeftNode[]; edges: WeftEdge[]; doneList: WeftNode[] }): void {
+  nodes.clear();
+  edges.length = 0;
+  doneList.length = 0;
+
+  for (const node of data.nodes) {
+    nodes.set(node.id, node);
+  }
+  for (const edge of data.edges) {
+    edges.push(edge);
+  }
+  for (const node of data.doneList) {
+    doneList.push(node);
+  }
+}
 
 // ── WebSocket client tracking ────────────────────────────────────────
 
@@ -69,12 +98,14 @@ export function clearHumanNeeded(nodeId: string): void {
   const updated = { ...node, needsHuman: false, humanNeededType: null, humanNeededPayload: null } as WeftNode;
   nodes.set(nodeId, updated);
   broadcast({ type: 'node_updated', node: updated });
+  scheduleSave(getStateSnapshot);
 }
 
 // ── CRUD ─────────────────────────────────────────────────────────────
 
 export function addNode(node: WeftNode): void {
   nodes.set(node.id, node);
+  scheduleSave(getStateSnapshot);
 }
 
 export function updateNode(id: string, patch: Partial<WeftNode>): WeftNode | null {
@@ -82,6 +113,7 @@ export function updateNode(id: string, patch: Partial<WeftNode>): WeftNode | nul
   if (!existing) return null;
   const updated = { ...existing, ...patch } as WeftNode;
   nodes.set(id, updated);
+  scheduleSave(getStateSnapshot);
   return updated;
 }
 
@@ -99,6 +131,7 @@ export function removeNode(id: string): WeftNode | null {
   for (const i of [...toRemove].sort((a, b) => b - a)) {
     edges.splice(i, 1);
   }
+  scheduleSave(getStateSnapshot);
   return node;
 }
 
@@ -116,10 +149,12 @@ export function getEdges(): WeftEdge[] {
 
 export function addEdge(edge: WeftEdge): void {
   edges.push(edge);
+  scheduleSave(getStateSnapshot);
 }
 
 export function addToDoneList(node: WeftNode): void {
   doneList.push(node);
+  scheduleSave(getStateSnapshot);
 }
 
 export function getDoneList(): WeftNode[] {
@@ -204,6 +239,7 @@ export function removeFromDoneList(nodeId: string): boolean {
   const idx = doneList.findIndex((n) => n.id === nodeId);
   if (idx === -1) return false;
   doneList.splice(idx, 1);
+  scheduleSave(getStateSnapshot);
   return true;
 }
 
