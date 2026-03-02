@@ -103,3 +103,11 @@ export type ServerMessage =
   | { type: 'done_list_updated'; doneList: WeftNode[] }
   | { type: 'tree_removed'; nodeIds: string[] }
   | { type: 'error'; message: string };
+
+// ── Autocomplete ────────────────────────────────────────────────────
+
+export interface AutocompleteItem {
+  label: string;       // filename or command name
+  detail?: string;     // path context or command description
+  insertText: string;  // what gets inserted on Tab
+}
