@@ -25,7 +25,7 @@ import {
   hydrateState,
   flushSave,
 } from './state.ts';
-import { spawnSession, hasSession, killSession, killAllSessions, sendInput } from './session.ts';
+import { spawnSession, hasSession, killSession, killAllSessions, sendInput, getSlashCommands } from './session.ts';
 import { getAllActiveFiles, clearNode as clearOverlapNode } from './overlap-tracker.ts';
 import { stopPolling as stopPRPolling, stopTracking as stopPRTracking } from './pr-tracker.ts';
 import { summarizeContext } from './context-summary.ts';
@@ -419,6 +419,39 @@ const server = Bun.serve({
           headers: { 'Content-Type': 'application/json' },
         });
       }
+    }
+
+    // Slash commands for autocomplete
+    const commandsMatch = url.pathname.match(/^\/api\/commands\/(.+)$/);
+    if (commandsMatch) {
+      const nodeId = commandsMatch[1]!;
+      const commands = getSlashCommands(nodeId);
+
+      if (commands) {
+        return new Response(JSON.stringify({ commands, source: 'session' }), {
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      // Session hasn't initialized yet — return hardcoded built-in commands
+      const fallbackCommands = [
+        { name: 'help', description: 'Show available commands', argumentHint: '' },
+        { name: 'clear', description: 'Clear conversation history', argumentHint: '' },
+        { name: 'compact', description: 'Compact conversation to save context', argumentHint: '[instructions]' },
+        { name: 'cost', description: 'Show token usage and cost', argumentHint: '' },
+        { name: 'model', description: 'Switch or display the current model', argumentHint: '[model-name]' },
+        { name: 'status', description: 'Show session status', argumentHint: '' },
+        { name: 'review', description: 'Review a pull request', argumentHint: '[pr-url]' },
+        { name: 'bug', description: 'Report a bug', argumentHint: '[description]' },
+        { name: 'init', description: 'Initialize project configuration', argumentHint: '' },
+        { name: 'config', description: 'Open or manage configuration', argumentHint: '' },
+        { name: 'memory', description: 'Edit CLAUDE.md memory files', argumentHint: '' },
+        { name: 'permissions', description: 'View or manage permissions', argumentHint: '' },
+      ];
+
+      return new Response(JSON.stringify({ commands: fallbackCommands, source: 'fallback' }), {
+        headers: { 'Content-Type': 'application/json' },
+      });
     }
 
     // Static file serving for production builds
