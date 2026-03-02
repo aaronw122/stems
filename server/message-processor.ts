@@ -66,18 +66,64 @@ const DIFF_MAX_LINES = 20;
 const DIFF_MAX_CHARS = 2000;
 
 function formatDiffSide(content: string, prefix: string): string {
-  let text = content;
-  if (text.length > DIFF_MAX_CHARS) {
-    text = text.slice(0, DIFF_MAX_CHARS);
-  }
   const allLines = content.split('\n');
-  const lines = text.split('\n');
-  const display = lines.length > DIFF_MAX_LINES ? lines.slice(0, DIFF_MAX_LINES) : lines;
+  const display = allLines.length > DIFF_MAX_LINES ? allLines.slice(0, DIFF_MAX_LINES) : allLines;
   let result = display.map(l => `${prefix} ${l}`).join('\n');
-  if (allLines.length > display.length) {
-    result += `\n${prefix} ... +${allLines.length - display.length} more lines`;
+  let charTrimmed = false;
+  if (result.length > DIFF_MAX_CHARS) {
+    charTrimmed = true;
+    result = result.slice(0, DIFF_MAX_CHARS);
+    // Trim to last complete line to avoid garbled partial lines
+    const lastNewline = result.lastIndexOf('\n');
+    if (lastNewline > 0) result = result.slice(0, lastNewline);
+  }
+  const displayedCount = result.split('\n').length;
+  if (allLines.length > displayedCount) {
+    result += `\n${prefix} ... +${allLines.length - displayedCount} more lines`;
+  } else if (charTrimmed) {
+    result += `\n${prefix} ... (truncated)`;
   }
   return result;
+}
+
+// ── Tool summary helpers ────────────────────────────────────────────
+
+function truncate(s: string, max: number): string {
+  return s.length > max ? s.slice(0, max) + '…' : s;
+}
+
+function shortenPath(p: string): string {
+  const segments = p.split('/');
+  return segments.length > 3 ? segments.slice(-3).join('/') : p;
+}
+
+function extractToolSummary(name: string, inp: Record<string, unknown>): string {
+  switch (name) {
+    case 'Read':
+    case 'Edit':
+    case 'Write':
+      return shortenPath(String(inp.file_path ?? ''));
+    case 'Bash':
+      return truncate(String(inp.command ?? ''), 80);
+    case 'Glob':
+      return String(inp.pattern ?? '');
+    case 'Grep':
+      return String(inp.pattern ?? '');
+    case 'Agent':
+      return truncate(String(inp.description ?? inp.prompt ?? ''), 60);
+    case 'WebFetch':
+      return truncate(String(inp.url ?? ''), 80);
+    case 'WebSearch':
+      return truncate(String(inp.query ?? ''), 60);
+    case 'NotebookEdit':
+      return shortenPath(String(inp.notebook_path ?? ''));
+    case 'TaskCreate':
+      return truncate(String(inp.subject ?? ''), 60);
+    case 'TaskUpdate':
+      return inp.status ? `${inp.taskId} → ${inp.status}` : String(inp.taskId ?? '');
+    default:
+      return '';
+  }
 }
 
 // ── Create message processor ────────────────────────────────────────
@@ -207,10 +253,19 @@ export function createMessageProcessor(nodeId: string) {
             messages.push({ type: 'human_needed', text: questionText });
             setHumanNeeded('question', input);
           } else {
-            const msg: TerminalMessage = { type: 'tool_use', text: name, toolName: name };
-            if (name === 'Edit' && input && typeof input === 'object') {
-              const inp = input as Record<string, unknown>;
-              if (typeof inp.old_string === 'string') {
+            const inp = input && typeof input === 'object' ? input as Record<string, unknown> : {};
+            // Map tool names to match Claude CLI display
+            const displayName = name === 'Agent'
+              ? String(inp.subagent_type ?? name)
+              : name === 'Edit' ? 'Update'
+              : name === 'WebSearch' ? 'Web Search'
+              : name === 'WebFetch' ? 'Fetch'
+              : name;
+            const msg: TerminalMessage = { type: 'tool_use', text: extractToolSummary(name, inp), toolName: displayName };
+
+            // Attach diff data for Edit tools
+            if (name === 'Edit') {
+              if (typeof inp.old_string === 'string' && inp.old_string !== '') {
                 msg.diffRemoved = formatDiffSide(inp.old_string, '-');
               }
               if (typeof inp.new_string === 'string') {
@@ -302,7 +357,6 @@ export function createMessageProcessor(nodeId: string) {
       }
     }
 
-    messages.push({ type: 'system', text: 'Completed', costUsd: msg.total_cost_usd });
     return messages;
   }
 

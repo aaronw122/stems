@@ -1,8 +1,42 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useTerminal } from '../../hooks/useTerminal.ts';
 import { useFloatingWindow } from '../../hooks/useFloatingWindow.ts';
-import type { TerminalMessage } from '../../../shared/types.ts';
+import { useGraph } from '../../hooks/useGraph.ts';
+import type { TerminalMessage, WeftNode } from '../../../shared/types.ts';
 import { TerminalMessageRenderer } from './TerminalMessageRenderer.tsx';
+
+// ── Thinking indicator ──────────────────────────────────────────────
+
+const THINKING_WORDS = [
+  'Pontificating', 'Ruminating', 'Cogitating', 'Deliberating',
+  'Musing', 'Contemplating', 'Mulling', 'Reasoning',
+];
+
+function ThinkingIndicator({ nodeId }: { nodeId: string }) {
+  const [elapsed, setElapsed] = useState(0);
+  const [word] = useState(() => THINKING_WORDS[Math.floor(Math.random() * THINKING_WORDS.length)]);
+
+  useEffect(() => {
+    const start = Date.now();
+    const interval = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - start) / 1000));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const timeStr = elapsed < 60
+    ? `${elapsed}s`
+    : `${Math.floor(elapsed / 60)}m ${elapsed % 60}s`;
+
+  return (
+    <div className="my-0.5 flex items-start gap-1.5">
+      <span style={{ color: 'var(--term-tool-error)' }}>✱</span>
+      <span style={{ color: 'var(--term-tool-error)' }}>
+        {word}… ({timeStr} · thinking)
+      </span>
+    </div>
+  );
+}
 
 interface TerminalPeekProps {
   nodeId: string;
@@ -30,8 +64,9 @@ const EDGE_CURSORS: Record<ResizeEdge, string> = {
 export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendInput }: TerminalPeekProps) {
   const [input, setInput] = useState('');
   const [autoScroll, setAutoScroll] = useState(true);
+  const [fontSize, setFontSize] = useState(12);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const prevMessageCountRef = useRef(0);
 
@@ -49,11 +84,42 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
 
   const messages = useTerminal((s) => s.buffers.get(nodeId) ?? EMPTY_MESSAGES);
 
+  // Get the node state to show thinking indicator
+  const nodeState = useGraph((s) => {
+    const flowNode = s.nodes.find((n) => n.id === nodeId);
+    return (flowNode?.data as WeftNode | undefined)?.nodeState ?? 'idle';
+  });
+
+  // Show thinking indicator when node is running and last message isn't streaming text
+  const lastMsg = messages[messages.length - 1];
+  const showThinking = nodeState === 'running'
+    && messages.length > 0
+    && lastMsg?.type !== 'assistant_text';
+
   // Focus input on mount
   useEffect(() => {
     requestAnimationFrame(() => {
       inputRef.current?.focus();
     });
+  }, []);
+
+  // Cmd+Plus / Cmd+Minus to zoom terminal text
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      if (e.key === '=' || e.key === '+') {
+        e.preventDefault();
+        setFontSize((s) => Math.min(24, s + 1));
+      } else if (e.key === '-') {
+        e.preventDefault();
+        setFontSize((s) => Math.max(8, s - 1));
+      } else if (e.key === '0') {
+        e.preventDefault();
+        setFontSize(12);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
   }, []);
 
   // Auto-scroll to bottom on new messages
@@ -212,10 +278,11 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
         onScroll={handleScroll}
         className="nowheel flex-1 overflow-y-auto px-4 py-3"
       >
-        <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-5" style={{ color: 'var(--term-text)' }}>
+        <pre className="whitespace-pre-wrap break-words font-mono" style={{ color: 'var(--term-text)', fontSize: `${fontSize}px`, lineHeight: '1.6' }}>
           {messages.map((msg, i) => (
             <TerminalMessageRenderer key={i} message={msg} />
           ))}
+          {showThinking && <ThinkingIndicator nodeId={nodeId} />}
           {messages.length === 0 && (
             <span style={{ color: 'var(--term-text-dim)' }}>
               Waiting for output...<span className="terminal-cursor" />
@@ -243,36 +310,32 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
         </button>
       )}
 
-      {/* Input area */}
+      {/* Input area — terminal-style with chevron */}
       <div
-        className="flex items-center gap-2 px-4 py-3"
+        className="flex items-start gap-2 px-4 py-2"
         style={{ borderTop: '1px solid var(--term-input-border)' }}
       >
-        <input
-          ref={inputRef}
-          type="text"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="Send input to session..."
-          className="flex-1 rounded-md px-3 py-1.5 font-mono text-sm outline-none transition-colors"
-          style={{
-            backgroundColor: 'var(--term-input-bg)',
-            border: '1px solid var(--term-input-border)',
-            color: 'var(--term-input-text)',
-          }}
-        />
-        <button
-          onClick={handleSubmit}
-          disabled={!input.trim()}
-          className="rounded-md px-3 py-1.5 text-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-          style={{
-            backgroundColor: 'var(--term-btn-bg)',
-            color: 'var(--term-btn-text)',
-          }}
+        <span
+          className="font-mono text-sm leading-5 select-none pt-px"
+          style={{ color: 'var(--term-text)' }}
         >
-          Send
-        </button>
+          ❯
+        </span>
+        <textarea
+          ref={inputRef}
+          value={input}
+          onChange={(e) => {
+            setInput(e.target.value);
+            // Auto-resize
+            const el = e.target;
+            el.style.height = 'auto';
+            el.style.height = `${el.scrollHeight}px`;
+          }}
+          onKeyDown={handleKeyDown}
+          rows={1}
+          className="flex-1 resize-none bg-transparent font-mono text-sm leading-5 outline-none"
+          style={{ color: 'var(--term-input-text)' }}
+        />
       </div>
     </div>
   );
