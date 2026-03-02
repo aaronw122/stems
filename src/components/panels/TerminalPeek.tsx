@@ -100,8 +100,8 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
   const nodeState = nodeData?.nodeState ?? 'idle';
   const contextPercent = nodeData?.contextPercent ?? null;
 
-  // Extract banner data from the first message (if it's a session_banner)
-  const bannerData = messages[0]?.type === 'session_banner' ? messages[0].bannerData : undefined;
+  // Find the session_banner message (may not be at index 0 — user prompt can arrive first)
+  const bannerData = messages.find(m => m.type === 'session_banner')?.bannerData;
 
   // Show thinking indicator when node is running and last message isn't streaming text
   const lastMsg = messages[messages.length - 1];
