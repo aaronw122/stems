@@ -103,6 +103,25 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
     });
   }, []);
 
+  // Cmd+Plus / Cmd+Minus to zoom terminal text
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      if (e.key === '=' || e.key === '+') {
+        e.preventDefault();
+        setFontSize((s) => Math.min(24, s + 1));
+      } else if (e.key === '-') {
+        e.preventDefault();
+        setFontSize((s) => Math.max(8, s - 1));
+      } else if (e.key === '0') {
+        e.preventDefault();
+        setFontSize(12);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+
   // Auto-scroll to bottom on new messages
   useEffect(() => {
     if (messages.length !== prevMessageCountRef.current) {
@@ -249,25 +268,8 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
         <div className="flex-1 text-center text-[13px] font-medium text-[#4a4a4a] truncate select-none">
           {nodeTitle}
         </div>
-        {/* Zoom controls */}
-        <div className="flex items-center gap-1" onPointerDown={(e) => e.stopPropagation()}>
-          <button
-            onClick={() => setFontSize((s) => Math.max(8, s - 1))}
-            className="w-5 h-5 flex items-center justify-center rounded text-xs opacity-50 hover:opacity-100 transition-opacity"
-            style={{ color: 'var(--term-text-dim)' }}
-            aria-label="Zoom out"
-          >
-            −
-          </button>
-          <button
-            onClick={() => setFontSize((s) => Math.min(24, s + 1))}
-            className="w-5 h-5 flex items-center justify-center rounded text-xs opacity-50 hover:opacity-100 transition-opacity"
-            style={{ color: 'var(--term-text-dim)' }}
-            aria-label="Zoom in"
-          >
-            +
-          </button>
-        </div>
+        {/* Spacer to balance the traffic lights */}
+        <div className="w-[52px]" />
       </div>
 
       {/* Terminal output — nowheel prevents React Flow panOnScroll */}
