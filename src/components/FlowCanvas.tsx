@@ -66,7 +66,7 @@ export function FlowCanvas({ send, onSpawn }: FlowCanvasProps) {
     (nodeId: string) => {
       const descendantIds = getDescendantIds(nodeId, edges);
       const nodeData = nodes.find((n) => n.id === nodeId);
-      const nodeName = (nodeData?.data as Record<string, unknown> | undefined)?.title as string ?? 'this repo';
+      const nodeName = (nodeData?.data as Record<string, unknown> | undefined)?.title as string ?? 'this node';
 
       let details = '';
       if (descendantIds.length > 0) {
@@ -100,11 +100,11 @@ export function FlowCanvas({ send, onSpawn }: FlowCanvasProps) {
         const tag = (e.target as HTMLElement)?.tagName;
         if (tag === 'INPUT' || tag === 'TEXTAREA') return;
 
-        const firstSelectedRepo = nodes.find((n) => n.selected && n.type === 'repo');
-        if (!firstSelectedRepo) return;
+        const firstSelected = nodes.find((n) => n.selected);
+        if (!firstSelected) return;
 
         e.preventDefault();
-        handleDeleteRequest(firstSelectedRepo.id);
+        handleDeleteRequest(firstSelected.id);
       }
     }
     window.addEventListener('keydown', handleKeyDown);
@@ -180,7 +180,13 @@ export function FlowCanvas({ send, onSpawn }: FlowCanvasProps) {
     <>
     <ConfirmDialog
       isOpen={deleteConfirm.isOpen}
-      title="Remove Repo"
+      title={(() => {
+        const node = nodes.find((n) => n.id === deleteConfirm.nodeId);
+        if (node?.type === 'repo') return 'Remove Repo';
+        if (node?.type === 'feature') return 'Remove Feature';
+        if (node?.type === 'subtask') return 'Remove Subtask';
+        return 'Remove Node';
+      })()}
       message={`Remove ${deleteConfirm.nodeName} from the Stems view?`}
       details={deleteConfirm.details || undefined}
       confirmLabel="Remove"
