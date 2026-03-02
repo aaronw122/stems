@@ -334,7 +334,7 @@ async function handleMessage(ws: ServerWebSocket<unknown>, raw: string): Promise
 
 // ── Restore persisted workspace ──────────────────────────────────────
 
-const savedWorkspace = loadWorkspace();
+const savedWorkspace = await loadWorkspace();
 if (savedWorkspace) {
   hydrateState(savedWorkspace);
   console.log(`[startup] Restored workspace: ${savedWorkspace.nodes.length} node(s), ${savedWorkspace.doneList.length} done`);
