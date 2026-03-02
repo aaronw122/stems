@@ -4,11 +4,25 @@ import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules/react-dom') || id.includes('node_modules/react/')) {
+            return 'react';
+          }
+          if (id.includes('node_modules/@xyflow') || id.includes('node_modules/dagre')) {
+            return 'xyflow';
+          }
+        },
+      },
+    },
+  },
   server: {
-    port: 5173,
+    port: 7483,
     proxy: {
-      '/api': 'http://localhost:4800',
-      '/ws': { target: 'ws://localhost:4800', ws: true },
+      '/api': 'http://localhost:7482',
+      '/ws': { target: 'ws://localhost:7482', ws: true },
     },
   },
 });

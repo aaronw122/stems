@@ -348,7 +348,7 @@ if (savedWorkspace) {
 // ── Server ───────────────────────────────────────────────────────────
 
 const server = Bun.serve({
-  port: 4800,
+  port: 7482,
   idleTimeout: 120, // seconds — osascript folder picker blocks until user responds
 
   async fetch(req) {
