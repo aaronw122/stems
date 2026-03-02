@@ -25,7 +25,7 @@ export type NodeState = 'idle' | 'running' | 'needs-human' | 'completed' | 'cras
 
 export type DisplayStage = 'planning' | 'executing' | 'testing';
 
-export type NodeType = 'repo' | 'feature' | 'subtask';
+export type NodeType = 'repo' | 'feature' | 'subtask' | 'phantom';
 
 export type HumanNeededType = 'question' | 'permission' | 'error' | 'idle' | null;
 
@@ -69,6 +69,13 @@ export interface WeftNode {
   isPhantomSubagent?: boolean;
   /** Correlates back to the SDK task_id for subagent lifecycle */
   subagentTaskId?: string;
+
+  /** Number of tool invocations by this subagent (phantom nodes only) */
+  toolUseCount?: number;
+  /** Total tokens consumed by this subagent (phantom nodes only) */
+  totalTokens?: number;
+  /** Current activity description for this subagent (phantom nodes only) */
+  currentActivity?: string;
 }
 
 export interface WeftEdge {

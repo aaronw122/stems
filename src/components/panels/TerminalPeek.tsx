@@ -6,6 +6,7 @@ import { useAutocomplete } from '../../hooks/useAutocomplete.ts';
 import type { TerminalMessage, WeftNode } from '../../../shared/types.ts';
 import { TerminalMessageRenderer } from './TerminalMessageRenderer.tsx';
 import { AutocompleteDropdown } from './AutocompleteDropdown.tsx';
+import { SubagentSummary } from './SubagentSummary.tsx';
 
 // ── Thinking indicator ──────────────────────────────────────────────
 
@@ -403,6 +404,9 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
           )}
         </pre>
       </div>
+
+      {/* Live subagent summary widget */}
+      <SubagentSummary parentNodeId={nodeId} />
 
       {/* Scroll indicator */}
       {!autoScroll && (

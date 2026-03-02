@@ -13,14 +13,16 @@ import '@xyflow/react/dist/style.css';
 import { RepoNode } from './nodes/RepoNode.tsx';
 import { FeatureNode } from './nodes/FeatureNode.tsx';
 import { SubtaskNode } from './nodes/SubtaskNode.tsx';
+import { PhantomNode } from './nodes/PhantomNode.tsx';
 import { ConfirmDialog } from './ConfirmDialog.tsx';
 import { useGraph } from '../hooks/useGraph.ts';
-import type { ClientMessage } from '../../shared/types.ts';
+import type { ClientMessage, WeftNode } from '../../shared/types.ts';
 
 const nodeTypes = {
   repo: RepoNode,
   feature: FeatureNode,
   subtask: SubtaskNode,
+  phantom: PhantomNode,
 };
 
 function getDescendantIds(nodeId: string, edges: Edge[]): string[] {
@@ -109,6 +111,8 @@ export function FlowCanvas({ send, onSpawn }: FlowCanvasProps) {
 
   const onNodeClick: NodeMouseHandler = useCallback(
     (_event, node) => {
+      // Phantom subagent nodes are not selectable — they have no terminal to peek
+      if ((node.data as unknown as WeftNode)?.isPhantomSubagent) return;
       setSelectedNode(node.id);
     },
     [setSelectedNode],
@@ -183,6 +187,7 @@ export function FlowCanvas({ send, onSpawn }: FlowCanvasProps) {
         nodeColor={(node) => {
           if (node.type === 'repo') return '#22c55e';
           if (node.type === 'feature') return '#3b82f6';
+          if (node.type === 'phantom') return '#8b5cf6';
           return '#6b7280';
         }}
         style={{ background: '#1a1a1a' }}
