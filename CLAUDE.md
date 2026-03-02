@@ -48,6 +48,14 @@ bun run file.ts      # Execute a TypeScript file directly
 
 **NEVER use npm, npx, yarn, or pnpm.** If you see a command in docs or Stack Overflow that uses npm, translate it to the bun equivalent before running.
 
+Common translations:
+```bash
+npx tsc --noEmit    → bunx tsc --noEmit
+npx vite            → bunx vite
+npm test            → bun test
+npm run build       → bun run build
+```
+
 ## Context
 
 Early-stage personal project. Prioritize simplicity — avoid over-engineering. Ship quality core software efficiently.
