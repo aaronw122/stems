@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ReactFlow,
   Background,
@@ -90,6 +90,28 @@ export function FlowCanvas({ send, onSpawn }: FlowCanvasProps) {
     setDeleteConfirm({ isOpen: false, nodeId: '', nodeName: '', details: '' });
   }, []);
 
+  // ── Delete key handler for selected repo nodes ────────────────────
+  const selectedNodeId = useGraph((s) => s.selectedNodeId);
+
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        // Don't intercept when typing in inputs
+        const tag = (e.target as HTMLElement)?.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+
+        if (!selectedNodeId) return;
+        const selectedNode = nodes.find((n) => n.id === selectedNodeId);
+        if (selectedNode?.type !== 'repo') return;
+
+        e.preventDefault();
+        handleDeleteRequest(selectedNodeId);
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedNodeId, nodes, handleDeleteRequest]);
+
   const handleUpdateTitle = useCallback(
     (nodeId: string, title: string) => {
       send({ type: 'update_title', nodeId, title });
@@ -170,6 +192,7 @@ export function FlowCanvas({ send, onSpawn }: FlowCanvasProps) {
       onNodeClick={onNodeClick}
       onNodeDragStop={handleNodeDragStop}
       defaultEdgeOptions={defaultEdgeOptions}
+      deleteKeyCode={null}
       panOnScroll
       zoomOnPinch
       zoomOnScroll={false}
