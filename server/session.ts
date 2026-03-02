@@ -26,6 +26,55 @@ function getCleanEnv(): Record<string, string | undefined> {
   return clean;
 }
 
+// ── Lightweight title generation ─────────────────────────────────────
+// Fires a small SDK query to generate a smart feature title from the
+// user's first message.  Called fire-and-forget — updates the node
+// title when the response arrives.
+
+export async function generateFeatureTitle(
+  nodeId: string,
+  userMessage: string,
+  repoPath: string,
+): Promise<void> {
+  try {
+    const titleQuery = query({
+      prompt: `In 3-6 words, name the feature or task described below. Output ONLY the title, nothing else. No quotes, no punctuation, no explanation.\n\n${userMessage}`,
+      options: {
+        cwd: repoPath,
+        permissionMode: 'bypassPermissions',
+        allowDangerouslySkipPermissions: true,
+        env: getCleanEnv(),
+      },
+    });
+
+    let responseText = '';
+    for await (const msg of titleQuery) {
+      if (
+        msg.type === 'assistant' &&
+        msg.message?.content &&
+        Array.isArray(msg.message.content)
+      ) {
+        for (const block of msg.message.content) {
+          if (block.type === 'text' && 'text' in block) {
+            responseText += String(block.text);
+          }
+        }
+      }
+    }
+
+    const title = responseText.trim().replace(/^["']|["']$/g, '');
+    if (title && title.length >= 3 && title.length <= 60) {
+      const updated = updateNode(nodeId, { title });
+      if (updated) {
+        broadcast({ type: 'node_updated', node: updated });
+      }
+    }
+  } catch (err) {
+    console.error(`[title-gen:${nodeId}] failed:`, err);
+    // Fallback: keep the extractTitle-derived placeholder
+  }
+}
+
 // ── Spawn a session via SDK query() ─────────────────────────────────
 
 export async function spawnSession(
