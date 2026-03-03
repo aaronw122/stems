@@ -1,88 +1,85 @@
-# Stems
+# stems
 
-A localhost GUI for visualizing and managing Claude Code agent sessions as a visual DAG. Repos at the root, features branching off, subtasks at the leaves. Each node is a real Claude CLI session you can peek into, spawn children from, and track to completion.
+i built this because i was sick of getting context overload looking at too many terminals. needed a better way to manage my agents. this is a localhost GUI for visualizing and managing Claude Code agent sessions as a visual DAG. repos at the root, features branching off, subtasks at the leaves. each node is a real Claude CLI session you can peek into, spawn children from, and track to completion.
 
-**Stack:** Bun + Vite + React + TypeScript + React Flow + Tailwind + Zustand
+**stack:** Bun + Vite + React + TypeScript + React Flow + Tailwind + Zustand
 
-## Prerequisites
+## prerequisites
 
 - [Bun](https://bun.sh) (v1.2+)
 - [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) (v2.1+)
-- A Claude account (Max, Pro, or API key)
+- a Claude account (max, pro, or API key)
 
-## Setup
+## setup
 
-### 1. Install dependencies
+### 1. install dependencies
 
 ```bash
 bun install
 ```
 
-### 2. Authenticate Claude Code
+### 2. authenticate Claude Code
 
-Stems uses the [Claude Agent SDK](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk) to spawn sessions. You need one of the following auth methods:
+stems uses the [Claude Agent SDK](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk) to spawn sessions. you need one of the following auth methods:
 
-#### Option A: Max/Pro subscription (recommended)
+#### option a: max/pro subscription (recommended)
 
-By default, the Agent SDK bills against API credits — not your Max/Pro subscription. To use your subscription instead, export your OAuth token:
+by default, the agent SDK bills against API credits — not your max/pro subscription. to use your subscription instead, export your OAuth token:
 
 ```bash
 claude setup-token
 ```
 
-This outputs your OAuth token. Set it as an environment variable:
+this outputs your OAuth token. add it to your shell config so it persists across terminal sessions:
 
 ```bash
-export CLAUDE_CODE_OAUTH_TOKEN=<token from above>
+echo 'export CLAUDE_CODE_OAUTH_TOKEN=<token from above>' >> ~/.zshrc
+source ~/.zshrc
 ```
 
-Add it to your `~/.zshrc` or `~/.bashrc` to persist across sessions:
+tokens are valid for one year. if you hit auth errors after that, re-run `claude setup-token` and update the value in your `~/.zshrc`.
 
-```bash
-echo 'export CLAUDE_CODE_OAUTH_TOKEN=<token>' >> ~/.zshrc
-```
+#### option b: API key
 
-#### Option B: API key
-
-Set your Anthropic API key:
+set your Anthropic API key:
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-This bills directly against your API credit balance. Opus 4.6 sessions can burn through credits quickly.
+this bills directly against your API credit balance. opus 4.6 sessions can burn through credits quickly.
 
-## Running
+## running
 
 ```bash
-# Start both server and client
+# start both server and client
 bun run dev
 
-# Or run them separately
-bun run dev:server   # Bun WebSocket server
-bun run dev:client   # Vite dev server
+# or run them separately
+bun run dev:server   # bun websocket server
+bun run dev:client   # vite dev server
 ```
 
-The client opens at `http://localhost:5173` and the server runs on `http://localhost:3000`.
+the client opens at `http://localhost:5173` and the server runs on `http://localhost:3000`.
 
-## Usage
+## usage
 
-1. Click the canvas to add a **repo node** — pick a local git repository
-2. Click a repo to spawn a **feature node** — type a prompt to start a Claude session
-3. Feature sessions can spawn **subtask nodes** automatically when Claude uses subagents
-4. Click any node to peek into its terminal output, send follow-up messages, or stop the session
+1. click the canvas to add a **repo node** — pick a local git repository
+2. click a repo to spawn a **feature node** — type a prompt to start a Claude session
+3. feature sessions can spawn **subtask nodes** automatically when Claude uses subagents
+4. click any node to peek into its terminal output, send follow-up messages, or stop the session
 
-## Architecture
+## architecture
 
 ```
-src/              → Vite/React frontend (browser UI)
-  components/     → React components (FlowCanvas, nodes, panels)
-  hooks/          → Zustand stores and custom hooks
-  styles/         → CSS
-server/           → Bun WebSocket server (spawns/manages Claude sessions)
-shared/           → Types shared between client and server
+src/              → vite/react frontend (browser UI)
+  components/     → react components (FlowCanvas, nodes, panels)
+  hooks/          → zustand stores and custom hooks
+  styles/         → css
+server/           → bun websocket server (spawns/manages Claude sessions)
+shared/           → types shared between client and server
 ```
 
-## License
+## license
 
 MIT
