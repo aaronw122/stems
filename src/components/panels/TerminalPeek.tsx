@@ -596,6 +596,15 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
           {messages.map((msg, i) => (
             msg.type === 'session_banner' ? null : <TerminalMessageRenderer key={i} message={msg} />
           ))}
+          {messages.length === 0 && (
+            <span style={{ color: 'var(--term-text-dim)' }}>
+              Waiting for output...<span className="terminal-cursor" />
+            </span>
+          )}
+        </pre>
+        {/* Live subagent summary — above thinking indicator */}
+        <SubagentSummary parentNodeId={nodeId} />
+        <pre className="whitespace-pre-wrap break-words font-mono" style={{ color: 'var(--term-text)', fontSize: `${fontSize}px`, lineHeight: '1.6' }}>
           {showThinking && <ThinkingIndicator nodeId={nodeId} />}
           {queuedMessages && queuedMessages.length > 0 && (
             <div className="mt-1">
@@ -615,14 +624,7 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
               </div>
             </div>
           )}
-          {messages.length === 0 && (
-            <span style={{ color: 'var(--term-text-dim)' }}>
-              Waiting for output...<span className="terminal-cursor" />
-            </span>
-          )}
         </pre>
-        {/* Live subagent summary widget — inside scroll container so it scrolls with output */}
-        <SubagentSummary parentNodeId={nodeId} />
       </div>
 
       {/* Scroll indicator */}
