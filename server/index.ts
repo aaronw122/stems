@@ -549,7 +549,12 @@ const server = Bun.serve({
       const commands = getSlashCommands(nodeId);
 
       if (commands) {
-        return new Response(JSON.stringify({ commands, source: 'session' }), {
+        // Merge custom skills that aren't already in the SDK's command list
+        const customSkills = getCustomSkills();
+        const sessionNames = new Set(commands.map((c) => c.name));
+        const extraSkills = customSkills.filter((s) => !sessionNames.has(s.name));
+        const merged = [...commands, ...extraSkills];
+        return new Response(JSON.stringify({ commands: merged, source: 'session' }), {
           headers: { 'Content-Type': 'application/json' },
         });
       }
