@@ -28,6 +28,7 @@ import {
   getPhantomNode,
 } from './state.ts';
 import { spawnSession, hasSession, killSession, killAllSessions, sendInput, getSlashCommands, generateFeatureTitle } from './session.ts';
+import { autoMoveIfComplete } from './completion.ts';
 import { getAllActiveFiles, clearNode as clearOverlapNode } from './overlap-tracker.ts';
 import { stopPolling as stopPRPolling, stopTracking as stopPRTracking } from './pr-tracker.ts';
 import { summarizeContext } from './context-summary.ts';
@@ -224,6 +225,32 @@ async function handleMessage(ws: ServerWebSocket<unknown>, raw: string): Promise
       if (updated) {
         broadcast({ type: 'node_updated', node: updated });
       }
+      break;
+    }
+
+    case 'stop_session': {
+      const node = getNode(msg.nodeId);
+      if (!node) break;
+
+      await killSession(msg.nodeId);
+      clearOverlapNode(msg.nodeId);
+
+      // Feature nodes go idle (can receive new input), subtasks go completed
+      const nextState = node.type === 'feature' ? 'idle' : 'completed';
+      const updated = updateNode(msg.nodeId, {
+        nodeState: nextState,
+        needsHuman: false,
+        humanNeededType: null,
+        humanNeededPayload: null,
+      });
+      if (updated) {
+        broadcast({ type: 'node_updated', node: updated });
+        if (nextState === 'completed') {
+          autoMoveIfComplete(msg.nodeId);
+        }
+      }
+
+      broadcastTerminal(msg.nodeId, [{ type: 'system', text: 'Session stopped by user (^C)' }]);
       break;
     }
 

@@ -47,6 +47,7 @@ interface TerminalPeekProps {
   containerRef: React.RefObject<HTMLElement | null>;
   onClose: () => void;
   onSendInput: (text: string) => void;
+  onStopSession: () => void;
 }
 
 const EMPTY_MESSAGES: TerminalMessage[] = [];
@@ -64,7 +65,7 @@ const EDGE_CURSORS: Record<ResizeEdge, string> = {
   sw: 'nesw-resize',
 };
 
-export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendInput }: TerminalPeekProps) {
+export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendInput, onStopSession }: TerminalPeekProps) {
   const [input, setInput] = useState('');
   const [autoScroll, setAutoScroll] = useState(true);
   const [fontSize, setFontSize] = useState(12);
@@ -210,6 +211,15 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
         return;
       }
 
+      // Ctrl+C — stop running session
+      if (e.ctrlKey && e.key === 'c' && !e.metaKey && !e.altKey && !e.shiftKey) {
+        if (nodeState === 'running') {
+          e.preventDefault();
+          onStopSession();
+          return;
+        }
+      }
+
       // Readline-style keybindings (Ctrl+key, no meta/alt/shift)
       if (e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
         const el = inputRef.current;
@@ -275,7 +285,7 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
         handleSubmit();
       }
     },
-    [autocomplete, applyAcceptance, handleSubmit, input],
+    [autocomplete, applyAcceptance, handleSubmit, input, nodeState, onStopSession],
   );
 
   // Stop pointer events from reaching the canvas
