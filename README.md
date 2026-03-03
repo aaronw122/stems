@@ -54,7 +54,10 @@ this bills directly against your API credit balance. opus 4.6 sessions can burn 
 ## running
 
 ```bash
-# start both server and client
+# to use prod app
+bun run start
+
+# to run dev for client and server
 bun run dev
 
 # or run them separately
@@ -62,7 +65,7 @@ bun run dev:server   # bun backend (http + websocket)
 bun run dev:client   # vite dev server
 ```
 
-in dev, open `http://localhost:7483` (vite dev server, proxies to the bun backend on `7482`). in production, the bun server serves everything at `http://localhost:7482`.
+in production, the bun server serves everything at `http://localhost:7482`. in dev, open `http://localhost:7483` (vite dev server, proxies to the bun backend on `7482`). 
 
 ## usage
 
