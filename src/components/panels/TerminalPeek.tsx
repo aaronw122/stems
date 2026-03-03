@@ -461,10 +461,9 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
             </span>
           )}
         </pre>
+        {/* Live subagent summary widget — inside scroll container so it scrolls with output */}
+        <SubagentSummary parentNodeId={nodeId} />
       </div>
-
-      {/* Live subagent summary widget */}
-      <SubagentSummary parentNodeId={nodeId} />
 
       {/* Scroll indicator */}
       {!autoScroll && (
