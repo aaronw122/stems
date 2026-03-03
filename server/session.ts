@@ -4,6 +4,19 @@ import { updateNode, getNode, broadcast, broadcastTerminal } from './state.ts';
 import { createMessageProcessor } from './message-processor.ts';
 import { autoMoveIfComplete } from './completion.ts';
 import { expandSlashCommand } from './slash-expand.ts';
+import { execSync } from 'node:child_process';
+
+// ── Resolve system Claude CLI path ──────────────────────────────────
+// The SDK bundles its own CLI which doesn't handle OAuth tokens properly.
+// Use the system-installed CLI instead so CLAUDE_CODE_OAUTH_TOKEN works
+// for Max/Pro subscription billing.
+const claudePath = (() => {
+  try {
+    return execSync('which claude', { encoding: 'utf-8' }).trim() || undefined;
+  } catch {
+    return undefined;
+  }
+})();
 
 // ── Session tracking ────────────────────────────────────────────────
 // Each session persists across multiple turns. Between turns, no query
@@ -51,6 +64,7 @@ export async function generateFeatureTitle(
         cwd: repoPath,
         permissionMode: 'bypassPermissions',
         allowDangerouslySkipPermissions: true,
+        pathToClaudeCodeExecutable: claudePath,
         env: getCleanEnv(),
       },
     });
@@ -98,6 +112,7 @@ export async function spawnSession(
     permissionMode: 'bypassPermissions',
     allowDangerouslySkipPermissions: true,
     includePartialMessages: true,
+    pathToClaudeCodeExecutable: claudePath,
     env: getCleanEnv(),
   };
 
