@@ -148,11 +148,19 @@ export function createMessageProcessor(nodeId: string) {
   // task_started (which carries tool_use_id but NOT the agent name) can
   // correlate back to the Agent block to get the display name.
   const agentToolUseTypes = new Map<string, string>();
+  // Reverse map: Agent tool_use_id → task_id, so we can route subagent
+  // assistant messages (which carry parent_tool_use_id) back to phantom nodes.
+  const toolUseIdToTaskId = new Map<string, string>();
+  // Accumulated stats per task_id (built from assistant messages since
+  // the CLI never emits task_progress/task_notification via the SDK stream).
+  const subagentAccumulatedStats = new Map<string, { toolUseCount: number; totalTokens: number }>();
   const PHANTOM_REMOVAL_DELAY_MS = 2_000;
 
   function createSubagentNode(taskId: string, toolUseId: string | undefined, description: string): void {
     const phantomId = crypto.randomUUID();
     activeSubagents.set(taskId, phantomId);
+    if (toolUseId) toolUseIdToTaskId.set(toolUseId, taskId);
+    subagentAccumulatedStats.set(taskId, { toolUseCount: 0, totalTokens: 0 });
 
     // Resolve agent name: correlate tool_use_id back to the Agent tool_use
     // block's subagent_type. Fall back to description or generic label.
@@ -314,10 +322,40 @@ export function createMessageProcessor(nodeId: string) {
   // ── Handle assistant message (complete turn) ──────────────────────
 
   function handleAssistant(msg: SDKAssistantMessage): TerminalMessage[] {
-    // Suppress subagent messages — these belong to the subagent tracker,
-    // not the parent terminal buffer. The parent's own messages have
-    // parent_tool_use_id === null.
-    if (msg.parent_tool_use_id) return [];
+    // Subagent messages: extract stats, then suppress from parent terminal.
+    if (msg.parent_tool_use_id) {
+      const taskId = toolUseIdToTaskId.get(msg.parent_tool_use_id);
+      if (taskId) {
+        const stats = subagentAccumulatedStats.get(taskId);
+        if (stats) {
+          // Count tool_use blocks in this assistant turn
+          const content = msg.message?.content;
+          if (content && Array.isArray(content)) {
+            for (const block of content) {
+              if (block.type === 'tool_use') stats.toolUseCount++;
+            }
+          }
+          // Accumulate tokens from message usage
+          const usage = msg.message?.usage;
+          if (usage) {
+            stats.totalTokens += (usage.input_tokens ?? 0) + (usage.output_tokens ?? 0);
+          }
+          // Derive current activity from the last tool_use block
+          let lastToolName: string | undefined;
+          if (content && Array.isArray(content)) {
+            for (const block of content) {
+              if (block.type === 'tool_use' && 'name' in block) lastToolName = String(block.name);
+            }
+          }
+          updateSubagentStats(taskId, {
+            toolUseCount: stats.toolUseCount,
+            totalTokens: stats.totalTokens,
+            currentActivity: lastToolName ?? undefined,
+          });
+        }
+      }
+      return [];
+    }
 
     const messages: TerminalMessage[] = [];
     const content = msg.message?.content;
@@ -517,9 +555,6 @@ export function createMessageProcessor(nodeId: string) {
   function processMessage(msg: SDKMessage): void {
     const messages: TerminalMessage[] = [];
 
-    // Debug logging — uncomment to trace all message types:
-    // console.log(`[msg-processor:${nodeId}] message: ${msg.type}`);
-
     // Reset idle timer on any message
     resetIdleTimer();
 
@@ -586,6 +621,14 @@ export function createMessageProcessor(nodeId: string) {
           // Any result with subtype starting with 'error_' is an error
           messages.push(...handleResultError(msg as SDKResultError));
         }
+
+        // Turn complete — mark all active subagents as completed.
+        // The CLI never emits task_notification via the SDK stream, so we
+        // use the result message as the completion signal.
+        for (const taskId of [...activeSubagents.keys()]) {
+          updateSubagentStats(taskId, { currentActivity: 'Completed' });
+          removeSubagentNode(taskId);
+        }
         break;
       }
 
@@ -630,6 +673,8 @@ export function createMessageProcessor(nodeId: string) {
     }
     activeSubagents.clear();
     agentToolUseTypes.clear();
+    toolUseIdToTaskId.clear();
+    subagentAccumulatedStats.clear();
   }
 
   return { processMessage, cleanup };

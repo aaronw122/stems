@@ -4,6 +4,19 @@ import { updateNode, getNode, broadcast, broadcastTerminal } from './state.ts';
 import { createMessageProcessor } from './message-processor.ts';
 import { autoMoveIfComplete } from './completion.ts';
 import { expandSlashCommand, findSlashCommand } from './slash-expand.ts';
+import { execSync } from 'node:child_process';
+
+// ── Resolve system Claude CLI path ──────────────────────────────────
+// The SDK bundles its own CLI which doesn't handle OAuth tokens properly.
+// Use the system-installed CLI instead so CLAUDE_CODE_OAUTH_TOKEN works
+// for Max/Pro subscription billing.
+const claudePath = (() => {
+  try {
+    return execSync('which claude', { encoding: 'utf-8' }).trim() || undefined;
+  } catch {
+    return undefined;
+  }
+})();
 
 // ── Session tracking ────────────────────────────────────────────────
 // Each session persists across multiple turns. Between turns, no query
@@ -23,9 +36,14 @@ interface Session {
 const sessions = new Map<string, Session>();
 
 // ── Clean env — strip CLAUDECODE so child Claude processes don't refuse to start
+// Inject STEMS_OAUTH_TOKEN as CLAUDE_CODE_OAUTH_TOKEN so spawned sessions use
+// the user's Max/Pro subscription without polluting their normal CLI auth.
 
 function getCleanEnv(): Record<string, string | undefined> {
-  const { CLAUDECODE, CLAUDE_CODE_ENTRYPOINT, ...clean } = process.env;
+  const { CLAUDECODE, CLAUDE_CODE_ENTRYPOINT, STEMS_OAUTH_TOKEN, ...clean } = process.env;
+  if (STEMS_OAUTH_TOKEN) {
+    clean.CLAUDE_CODE_OAUTH_TOKEN = STEMS_OAUTH_TOKEN;
+  }
   return clean;
 }
 
@@ -46,6 +64,7 @@ export async function generateFeatureTitle(
         cwd: repoPath,
         permissionMode: 'bypassPermissions',
         allowDangerouslySkipPermissions: true,
+        pathToClaudeCodeExecutable: claudePath,
         env: getCleanEnv(),
       },
     });
@@ -93,6 +112,7 @@ export async function spawnSession(
     permissionMode: 'bypassPermissions',
     allowDangerouslySkipPermissions: true,
     includePartialMessages: true,
+    pathToClaudeCodeExecutable: claudePath,
     env: getCleanEnv(),
   };
 
