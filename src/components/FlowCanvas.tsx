@@ -240,6 +240,8 @@ export function FlowCanvas({ send, onSpawn }: FlowCanvasProps) {
       panOnScroll
       zoomOnPinch
       zoomOnScroll={false}
+      minZoom={0.25}
+      maxZoom={4}
       colorMode="dark"
       fitView
       proOptions={{ hideAttribution: true }}
