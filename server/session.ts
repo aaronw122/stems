@@ -3,6 +3,7 @@ import type { Query, Options, SlashCommand, SDKSystemMessage } from '@anthropic-
 import { updateNode, getNode, broadcast, broadcastTerminal } from './state.ts';
 import { createMessageProcessor } from './message-processor.ts';
 import { autoMoveIfComplete } from './completion.ts';
+import { expandSlashCommand } from './slash-expand.ts';
 
 // ── Session tracking ────────────────────────────────────────────────
 // Each session persists across multiple turns. Between turns, no query
@@ -16,6 +17,7 @@ interface Session {
   processor: ReturnType<typeof createMessageProcessor>;
   abortController: AbortController | null;  // non-null only during an active turn
   slashCommands: SlashCommand[] | null;  // captured from SDK init, used for autocomplete
+  pendingInputs: string[];  // queued user messages waiting for current turn to complete
 }
 
 const sessions = new Map<string, Session>();
@@ -112,6 +114,7 @@ export async function spawnSession(
     processor,
     abortController: null,
     slashCommands: null,
+    pendingInputs: [],
   };
   sessions.set(nodeId, session);
 
@@ -123,8 +126,18 @@ export async function spawnSession(
 
   console.log(`[session:${nodeId}] spawning SDK query, cwd: ${repoPath}, prompt: ${prompt.slice(0, 80)}...`);
 
+  // Expand slash commands in the initial prompt
+  let effectivePrompt = prompt;
+  const expansion = expandSlashCommand(prompt, repoPath);
+  if (expansion) {
+    broadcastTerminal(nodeId, [{ type: 'system', text: `Expanding /${expansion.name}...` }]);
+    effectivePrompt = expansion.expanded;
+  } else if (/^\/[a-zA-Z][a-zA-Z0-9:-]*(?:\s|$)/.test(prompt)) {
+    broadcastTerminal(nodeId, [{ type: 'system', text: `Unknown command: ${prompt.split(/\s/)[0]}` }]);
+  }
+
   // Run the first turn
-  runTurn(session, prompt);
+  runTurn(session, effectivePrompt);
 }
 
 // ── Run a single turn (prompt → response) ───────────────────────────
@@ -243,47 +256,102 @@ async function consumeTurn(session: Session, queryInstance: Query): Promise<void
   if (!node) return;
 
   if (node.type === 'subtask') {
-    // Subtasks are autonomous — complete after their query finishes
-    const updated = updateNode(nodeId, {
-      nodeState: 'completed',
-      needsHuman: false,
-      humanNeededType: null,
-      humanNeededPayload: null,
-    });
-    if (updated) {
-      broadcast({ type: 'node_updated', node: updated });
-      autoMoveIfComplete(nodeId);
+    if (session.pendingInputs.length > 0) {
+      // User sent follow-up messages — keep the subtask alive for another turn
+      processPendingInputs(session);
+    } else {
+      // Subtasks are autonomous — complete after their query finishes
+      const updated = updateNode(nodeId, {
+        nodeState: 'completed',
+        needsHuman: false,
+        humanNeededType: null,
+        humanNeededPayload: null,
+      });
+      if (updated) {
+        broadcast({ type: 'node_updated', node: updated });
+        autoMoveIfComplete(nodeId);
+      }
+      processor.cleanup();
+      sessions.delete(nodeId);
+      console.log(`[session:${nodeId}] subtask completed, session removed`);
     }
-    processor.cleanup();
-    sessions.delete(nodeId);
-    console.log(`[session:${nodeId}] subtask completed, session removed`);
   } else {
-    // Features are interactive — stay running for more user input
-    const updated = updateNode(nodeId, { nodeState: 'running' });
-    if (updated) {
-      broadcast({ type: 'node_updated', node: updated });
+    if (session.pendingInputs.length > 0) {
+      // Process queued messages from the user
+      processPendingInputs(session);
+    } else {
+      // Features are interactive — stay running for more user input
+      const updated = updateNode(nodeId, { nodeState: 'running' });
+      if (updated) {
+        broadcast({ type: 'node_updated', node: updated });
+      }
+      console.log(`[session:${nodeId}] turn completed, session alive for more input`);
     }
-    console.log(`[session:${nodeId}] turn completed, session alive for more input`);
   }
+}
+
+// ── Process queued messages ──────────────────────────────────────────
+
+function processPendingInputs(session: Session): void {
+  const { nodeId } = session;
+  const pending = session.pendingInputs.splice(0);
+  const combinedPrompt = pending.join('\n\n');
+
+  // Broadcast each queued message as a regular user_message (they now appear
+  // in the conversation above the new thinking indicator)
+  for (const text of pending) {
+    broadcastTerminal(nodeId, [{ type: 'user_message', text }]);
+  }
+
+  // Clear the queue on the client
+  broadcast({ type: 'queue_update', nodeId, messages: [] });
+
+  console.log(`[session:${nodeId}] turn completed, processing ${pending.length} queued message(s)`);
+
+  // Expand slash commands on the combined prompt
+  let effectiveText = combinedPrompt;
+  const expansion = expandSlashCommand(combinedPrompt, session.repoPath);
+  if (expansion) {
+    broadcastTerminal(nodeId, [{ type: 'system', text: `Expanding /${expansion.name}...` }]);
+    effectiveText = expansion.expanded;
+  }
+
+  const updated = updateNode(nodeId, { nodeState: 'running' });
+  if (updated) {
+    broadcast({ type: 'node_updated', node: updated });
+  }
+
+  runTurn(session, effectiveText);
 }
 
 // ── Send input to a session ─────────────────────────────────────────
 
-export function sendInput(nodeId: string, text: string): void {
+export function sendInput(nodeId: string, text: string): 'sent' | 'queued' | 'dropped' {
   const session = sessions.get(nodeId);
   if (!session) {
     console.warn(`[sendInput:${nodeId}] no session found — input dropped`);
-    return;
+    return 'dropped';
   }
 
   if (session.abortController) {
-    // A turn is already running — this shouldn't happen in normal flow
-    // (user shouldn't be able to send input while Claude is responding)
-    console.warn(`[sendInput:${nodeId}] turn already in progress — input dropped`);
-    return;
+    // Queue the message — will be sent when the current turn finishes
+    session.pendingInputs.push(text);
+    console.log(`[sendInput:${nodeId}] turn in progress — queued (${session.pendingInputs.length} pending)`);
+    broadcast({ type: 'queue_update', nodeId, messages: [...session.pendingInputs] });
+    return 'queued';
   }
 
   console.log(`[sendInput:${nodeId}] starting new turn: ${text.slice(0, 120)}`);
+
+  // Expand slash commands
+  let effectiveText = text;
+  const expansion = expandSlashCommand(text, session.repoPath);
+  if (expansion) {
+    broadcastTerminal(nodeId, [{ type: 'system', text: `Expanding /${expansion.name}...` }]);
+    effectiveText = expansion.expanded;
+  } else if (/^\/[a-zA-Z][a-zA-Z0-9:-]*(?:\s|$)/.test(text)) {
+    broadcastTerminal(nodeId, [{ type: 'system', text: `Unknown command: ${text.split(/\s/)[0]}` }]);
+  }
 
   // Update node state to running (may have been idle between turns)
   const updated = updateNode(nodeId, { nodeState: 'running' });
@@ -291,7 +359,34 @@ export function sendInput(nodeId: string, text: string): void {
     broadcast({ type: 'node_updated', node: updated });
   }
 
-  runTurn(session, text);
+  runTurn(session, effectiveText);
+  return 'sent';
+}
+
+// ── Query session busy state ─────────────────────────────────────────
+
+export function isSessionBusy(nodeId: string): boolean {
+  const session = sessions.get(nodeId);
+  return session?.abortController != null;
+}
+
+// ── Dequeue pending inputs ───────────────────────────────────────────
+
+export function dequeueInput(nodeId: string, action: 'pop_last' | 'clear_all'): string[] {
+  const session = sessions.get(nodeId);
+  if (!session || session.pendingInputs.length === 0) return [];
+
+  let removed: string[];
+  if (action === 'pop_last') {
+    removed = [session.pendingInputs.pop()!];
+  } else {
+    removed = session.pendingInputs.splice(0);
+  }
+
+  // Broadcast the updated queue to clients
+  broadcast({ type: 'queue_update', nodeId, messages: [...session.pendingInputs] });
+  console.log(`[dequeue:${nodeId}] ${action}: removed ${removed.length}, ${session.pendingInputs.length} remaining`);
+  return removed;
 }
 
 // ── Query session state ─────────────────────────────────────────────

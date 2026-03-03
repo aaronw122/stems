@@ -18,6 +18,7 @@ export function useWebSocket(onMessage?: (msg: ServerMessage) => void): UseWebSo
 
   const appendMessages = useTerminal((s) => s.appendMessages);
   const setMessages = useTerminal((s) => s.setMessages);
+  const setQueue = useTerminal((s) => s.setQueue);
 
   const connect = useCallback(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -46,6 +47,8 @@ export function useWebSocket(onMessage?: (msg: ServerMessage) => void): UseWebSo
           appendMessages(msg.nodeId, msg.messages);
         } else if (msg.type === 'terminal_replay') {
           setMessages(msg.nodeId, msg.messages);
+        } else if (msg.type === 'queue_update') {
+          setQueue(msg.nodeId, msg.messages);
         }
 
         // Route all messages to the graph store / other handlers
@@ -70,7 +73,7 @@ export function useWebSocket(onMessage?: (msg: ServerMessage) => void): UseWebSo
     ws.onerror = () => {
       // onclose will fire after onerror, triggering reconnect
     };
-  }, [appendMessages, setMessages]);
+  }, [appendMessages, setMessages, setQueue]);
 
   useEffect(() => {
     connect();
