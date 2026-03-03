@@ -3,6 +3,7 @@ import { FlowCanvas } from './components/FlowCanvas.tsx';
 import { PromptEditor } from './components/panels/PromptEditor.tsx';
 import { TerminalPeek } from './components/panels/TerminalPeek.tsx';
 import { DoneList } from './components/panels/DoneList.tsx';
+import { MarkdownViewer } from './components/panels/MarkdownViewer.tsx';
 import { useWebSocket } from './hooks/useWebSocket.ts';
 import { useGraph } from './hooks/useGraph.ts';
 
@@ -13,6 +14,7 @@ export default function App() {
   const { send, isConnected } = useWebSocket(processMessage);
 
   const [doneListOpen, setDoneListOpen] = useState(false);
+  const [markdownPath, setMarkdownPath] = useState<string | null>(null);
 
   // Ref to the canvas container for floating terminal positioning
   const canvasContainerRef = useRef<HTMLDivElement>(null);
@@ -89,7 +91,9 @@ export default function App() {
       if (e.key === 'Escape') {
         // The useFloatingWindow hook handles Escape during active gestures
         // via a capture-phase listener, so it won't reach here during drag/resize.
-        if (promptEditor.isOpen) {
+        if (markdownPath) {
+          setMarkdownPath(null);
+        } else if (promptEditor.isOpen) {
           setPromptEditor((prev) => ({ ...prev, isOpen: false }));
         } else if (selectedNodeId) {
           useGraph.getState().setSelectedNode(null);
@@ -106,7 +110,7 @@ export default function App() {
     }
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [promptEditor.isOpen, selectedNodeId, doneListOpen, handleAddRepo]);
+  }, [markdownPath, promptEditor.isOpen, selectedNodeId, doneListOpen, handleAddRepo]);
 
   const handleSpawn = useCallback(
     (nodeId: string, spawnType: 'feature' | 'subtask') => {
@@ -233,6 +237,7 @@ export default function App() {
             onSendInput={handleTerminalInput}
             onStopSession={handleStopSession}
             onDequeue={handleDequeue}
+            onOpenMarkdown={setMarkdownPath}
           />
         )}
 
@@ -242,6 +247,9 @@ export default function App() {
           isOpen={doneListOpen}
           onToggle={() => setDoneListOpen((prev) => !prev)}
         />
+
+        {/* Markdown file viewer overlay */}
+        <MarkdownViewer filePath={markdownPath} onClose={() => setMarkdownPath(null)} />
       </div>
     </div>
   );
