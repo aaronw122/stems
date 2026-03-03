@@ -106,8 +106,8 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
         // Strip the data URL prefix to get raw base64
         const base64 = dataUrl.split(',')[1] ?? '';
         const mediaType = file.type || 'image/png';
+        const name = `Image ${imageCounterRef.current}`;
         imageCounterRef.current += 1;
-        const name = file.name || `Image #${imageCounterRef.current}`;
         resolve({ data: base64, mediaType, name });
       };
       reader.onerror = () => reject(reader.error);
@@ -247,7 +247,6 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
       setInput('');
       setImages([]);
       setSelectedChipIndex(null);
-      imageCounterRef.current = 0;
     }
   }, [input, images, onSendInput]);
 
