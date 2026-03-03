@@ -149,6 +149,12 @@ export default function App() {
     useGraph.getState().setSelectedNode(null);
   }, []);
 
+  const handleStopSession = useCallback(() => {
+    if (selectedNodeId) {
+      send({ type: 'stop_session', nodeId: selectedNodeId });
+    }
+  }, [selectedNodeId, send]);
+
   const handleTerminalInput = useCallback(
     (text: string) => {
       if (selectedNodeId) {
@@ -225,6 +231,7 @@ export default function App() {
             containerRef={canvasContainerRef}
             onClose={handleTerminalClose}
             onSendInput={handleTerminalInput}
+            onStopSession={handleStopSession}
             onDequeue={handleDequeue}
           />
         )}
