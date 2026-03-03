@@ -9,30 +9,45 @@ const BUILTIN_COMMANDS = new Set([
   'review', 'bug', 'init', 'config', 'memory', 'permissions',
 ]);
 
-const SLASH_COMMAND_RE = /^\/([a-zA-Z][a-zA-Z0-9:-]*)(?:\s+([\s\S]*))?$/;
+// Matches /command anywhere — must be at start of text or after whitespace.
+// Only matches the FIRST occurrence (non-global).
+const SLASH_CMD_RE = /(?:^|\s)(\/([a-zA-Z][a-zA-Z0-9:-]*))/;
+
+export function findSlashCommand(text: string): { name: string; args: string; prefix: string } | null {
+  const match = text.match(SLASH_CMD_RE);
+  if (!match) return null;
+
+  const slashWithName = match[1]!; // "/command-name"
+  const name = match[2]!;
+  const cmdStart = match.index! + match[0].indexOf('/');
+
+  const prefix = text.slice(0, cmdStart);
+  const afterCmd = text.slice(cmdStart + slashWithName.length);
+  const args = afterCmd.replace(/^\s+/, '');
+
+  return { name, args, prefix };
+}
 
 export function expandSlashCommand(
   text: string,
   repoPath: string,
 ): { expanded: string; name: string; args: string } | null {
-  const match = text.match(SLASH_COMMAND_RE);
-  if (!match) return null;
+  const cmd = findSlashCommand(text);
+  if (!cmd) return null;
 
-  const name = match[1]!;
-  const args = match[2] ?? '';
-
-  const content = loadSkillContent(name, repoPath);
+  const content = loadSkillContent(cmd.name, repoPath);
   if (!content) {
-    console.log(`[slash-expand] detected /${name} but no expansion found`);
+    console.log(`[slash-expand] detected /${cmd.name} but no expansion found`);
     return null;
   }
 
   const stripped = stripFrontmatter(content);
-  const expanded = stripped.replaceAll('$ARGUMENTS', args);
+  const withArgs = stripped.replaceAll('$ARGUMENTS', cmd.args);
+  const expanded = cmd.prefix ? `${cmd.prefix.trimEnd()} ${withArgs}` : withArgs;
 
-  console.log(`[slash-expand] /${name} → expanded (${expanded.length} chars)`);
+  console.log(`[slash-expand] /${cmd.name} → expanded (${expanded.length} chars)`);
 
-  return { expanded, name, args };
+  return { expanded, name: cmd.name, args: cmd.args };
 }
 
 function loadSkillContent(name: string, repoPath: string): string | null {
