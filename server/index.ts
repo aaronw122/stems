@@ -27,7 +27,7 @@ import {
   removePhantomNode,
   getPhantomNode,
 } from './state.ts';
-import { spawnSession, hasSession, killSession, killAllSessions, sendInput, getSlashCommands, generateFeatureTitle } from './session.ts';
+import { spawnSession, hasSession, killSession, killAllSessions, sendInput, isSessionBusy, dequeueInput, getSlashCommands, generateFeatureTitle } from './session.ts';
 import { getAllActiveFiles, clearNode as clearOverlapNode } from './overlap-tracker.ts';
 import { stopPolling as stopPRPolling, stopTracking as stopPRTracking } from './pr-tracker.ts';
 import { summarizeContext } from './context-summary.ts';
@@ -333,11 +333,22 @@ async function handleMessage(ws: ServerWebSocket<unknown>, raw: string): Promise
           broadcastTerminal(nodeId, [{ type: 'user_message', text: payload.granted ? 'yes' : 'no' }]);
           sendInput(nodeId, payload.granted ? 'yes' : 'no');
           break;
-        case 'text_input':
-          broadcastTerminal(nodeId, [{ type: 'user_message', text: payload.text }]);
-          sendInput(nodeId, payload.text);
+        case 'text_input': {
+          const status = sendInput(nodeId, payload.text);
+          // Only show the message immediately if it was sent (not queued).
+          // Queued messages appear below the thinking indicator on the client,
+          // and get broadcast as regular user_messages when the turn completes.
+          if (status !== 'queued') {
+            broadcastTerminal(nodeId, [{ type: 'user_message', text: payload.text }]);
+          }
           break;
+        }
       }
+      break;
+    }
+
+    case 'dequeue': {
+      dequeueInput(msg.nodeId, msg.action);
       break;
     }
 

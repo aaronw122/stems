@@ -47,6 +47,7 @@ interface TerminalPeekProps {
   containerRef: React.RefObject<HTMLElement | null>;
   onClose: () => void;
   onSendInput: (text: string) => void;
+  onDequeue: (action: 'pop_last' | 'clear_all') => void;
 }
 
 const EMPTY_MESSAGES: TerminalMessage[] = [];
@@ -64,7 +65,7 @@ const EDGE_CURSORS: Record<ResizeEdge, string> = {
   sw: 'nesw-resize',
 };
 
-export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendInput }: TerminalPeekProps) {
+export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendInput, onDequeue }: TerminalPeekProps) {
   const [input, setInput] = useState('');
   const [autoScroll, setAutoScroll] = useState(true);
   const [fontSize, setFontSize] = useState(12);
@@ -91,6 +92,7 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
   const [cursorAtEnd, setCursorAtEnd] = useState(true);
 
   const messages = useTerminal((s) => s.buffers.get(nodeId) ?? EMPTY_MESSAGES);
+  const queuedMessages = useTerminal((s) => s.queues.get(nodeId));
 
   // Get the node data for thinking indicator + context bar
   const nodeData = useGraph((s) => {
@@ -270,12 +272,47 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
       }
 
 
+      // Up arrow — pop last queued message into input for editing
+      if (e.key === 'ArrowUp' && !input && queuedMessages && queuedMessages.length > 0) {
+        e.preventDefault();
+        const lastQueued = queuedMessages[queuedMessages.length - 1]!;
+        setInput(lastQueued);
+        onDequeue('pop_last');
+        // Resize textarea for the new content
+        requestAnimationFrame(() => {
+          const el = inputRef.current;
+          if (el) {
+            el.style.height = 'auto';
+            el.style.height = `${el.scrollHeight}px`;
+            el.setSelectionRange(lastQueued.length, lastQueued.length);
+          }
+        });
+        return;
+      }
+
+      // Escape — move all queued messages back to input
+      if (e.key === 'Escape' && queuedMessages && queuedMessages.length > 0) {
+        e.preventDefault();
+        const allQueued = queuedMessages.join('\n');
+        setInput(allQueued);
+        onDequeue('clear_all');
+        requestAnimationFrame(() => {
+          const el = inputRef.current;
+          if (el) {
+            el.style.height = 'auto';
+            el.style.height = `${el.scrollHeight}px`;
+            el.setSelectionRange(allQueued.length, allQueued.length);
+          }
+        });
+        return;
+      }
+
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         handleSubmit();
       }
     },
-    [autocomplete, applyAcceptance, handleSubmit, input],
+    [autocomplete, applyAcceptance, handleSubmit, input, queuedMessages, onDequeue],
   );
 
   // Stop pointer events from reaching the canvas
@@ -405,6 +442,19 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
             msg.type === 'session_banner' ? null : <TerminalMessageRenderer key={i} message={msg} />
           ))}
           {showThinking && <ThinkingIndicator nodeId={nodeId} />}
+          {queuedMessages && queuedMessages.length > 0 && (
+            <div className="mt-1">
+              {queuedMessages.map((text, i) => (
+                <div key={`q-${i}`} className="my-0.5 flex items-start gap-1.5">
+                  <span style={{ color: 'var(--term-user)' }}>›</span>
+                  <span style={{ color: 'var(--term-user)' }}>{text}</span>
+                </div>
+              ))}
+              <div className="mt-0.5" style={{ color: 'var(--term-text-dim)', fontSize: `${fontSize - 1}px` }}>
+                Press up to edit queued messages
+              </div>
+            </div>
+          )}
           {messages.length === 0 && (
             <span style={{ color: 'var(--term-text-dim)' }}>
               Waiting for output...<span className="terminal-cursor" />

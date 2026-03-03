@@ -5,14 +5,17 @@ const MAX_MESSAGES = 500;
 
 interface TerminalState {
   buffers: Map<string, TerminalMessage[]>;
+  queues: Map<string, string[]>;
   appendMessages: (nodeId: string, messages: TerminalMessage[]) => void;
   setMessages: (nodeId: string, messages: TerminalMessage[]) => void;
+  setQueue: (nodeId: string, messages: string[]) => void;
   getMessages: (nodeId: string) => TerminalMessage[];
   clear: (nodeId: string) => void;
 }
 
 export const useTerminal = create<TerminalState>((set, get) => ({
   buffers: new Map(),
+  queues: new Map(),
 
   appendMessages(nodeId: string, messages: TerminalMessage[]) {
     if (messages.length === 0) return;
@@ -72,6 +75,18 @@ export const useTerminal = create<TerminalState>((set, get) => ({
       }
       newBuffers.set(nodeId, trimmed);
       return { buffers: newBuffers };
+    });
+  },
+
+  setQueue(nodeId: string, messages: string[]) {
+    set((state) => {
+      const newQueues = new Map(state.queues);
+      if (messages.length === 0) {
+        newQueues.delete(nodeId);
+      } else {
+        newQueues.set(nodeId, messages);
+      }
+      return { queues: newQueues };
     });
   },
 
