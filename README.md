@@ -2,7 +2,7 @@
 
 i built this because i was sick of getting context overload looking at too many terminals. needed a better way to manage my agents. this is a localhost GUI for visualizing and managing Claude Code agent sessions as a visual DAG. repos at the root, features branching off, subtasks at the leaves. each node is a real Claude CLI session you can peek into, spawn children from, and track to completion.
 
-**stack:** Bun + Vite + React + TypeScript + React Flow + Tailwind + Zustand
+**stack:** Bun + Vite + React + TypeScript + xyflow + Tailwind + Zustand
 
 ## prerequisites
 
@@ -20,7 +20,7 @@ bun install
 
 ### 2. authenticate Claude Code
 
-stems uses the [Claude Agent SDK](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk) to spawn sessions. you need one of the following auth methods:
+stems uses the [Claude Agent SDK](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk) to spawn sessions. the SDK needs auth from the Claude Code CLI — you need both installed.
 
 #### option a: max/pro subscription (recommended)
 
@@ -56,7 +56,7 @@ this bills directly against your API credit balance. opus 4.6 sessions can burn 
 bun run dev
 
 # or run them separately
-bun run dev:server   # bun websocket server
+bun run dev:server   # bun backend (http + websocket)
 bun run dev:client   # vite dev server
 ```
 
@@ -64,19 +64,20 @@ in dev, open `http://localhost:7483` (vite dev server, proxies to the bun backen
 
 ## usage
 
-1. click the canvas to add a **repo node** — pick a local git repository
-2. click a repo to spawn a **feature node** — type a prompt to start a Claude session
+1. click **+ add repo** in the toolbar to add a repo node — picks a local git repository via native folder picker
+2. click the **+ feature** button on a repo card — type a prompt to start a Claude session
 3. feature sessions can spawn **subtask nodes** automatically when Claude uses subagents
 4. click any node to peek into its terminal output, send follow-up messages, or stop the session
 
 ## architecture
 
 ```
-src/              → vite/react frontend (browser UI)
+src/
   components/     → react components (FlowCanvas, nodes, panels)
   hooks/          → zustand stores and custom hooks
+  themes/         → theme system and presets
   styles/         → css
-server/           → bun websocket server (spawns/manages Claude sessions)
+server/           → bun server (http API + websocket + session management)
 shared/           → types shared between client and server
 ```
 
