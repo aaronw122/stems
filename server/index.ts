@@ -489,6 +489,42 @@ const server = Bun.serve({
       }
     }
 
+    // Read a markdown file from disk
+    if (url.pathname === '/api/read-file') {
+      const filePath = url.searchParams.get('path');
+      if (!filePath) {
+        return new Response(JSON.stringify({ error: 'Missing "path" query parameter' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (!filePath.endsWith('.md')) {
+        return new Response(JSON.stringify({ error: 'Only .md files are supported' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      try {
+        const file = Bun.file(filePath);
+        if (!(await file.exists())) {
+          return new Response(JSON.stringify({ error: 'File not found' }), {
+            status: 404,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        const content = await file.text();
+        return new Response(JSON.stringify({ content, path: filePath }), {
+          headers: { 'Content-Type': 'application/json' },
+        });
+      } catch (err) {
+        console.error('[read-file] error:', err);
+        return new Response(JSON.stringify({ error: String(err) }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+    }
+
     // File listing for autocomplete (gitignore-respecting)
     const filesMatch = url.pathname.match(/^\/api\/files\/(.+)$/);
     if (filesMatch) {
