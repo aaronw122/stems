@@ -3,6 +3,7 @@ import type { Query, Options, SlashCommand, SDKSystemMessage } from '@anthropic-
 import { updateNode, getNode, broadcast, broadcastTerminal } from './state.ts';
 import { createMessageProcessor } from './message-processor.ts';
 import { autoMoveIfComplete } from './completion.ts';
+import { expandSlashCommand } from './slash-expand.ts';
 
 // ── Session tracking ────────────────────────────────────────────────
 // Each session persists across multiple turns. Between turns, no query
@@ -123,8 +124,18 @@ export async function spawnSession(
 
   console.log(`[session:${nodeId}] spawning SDK query, cwd: ${repoPath}, prompt: ${prompt.slice(0, 80)}...`);
 
+  // Expand slash commands in the initial prompt
+  let effectivePrompt = prompt;
+  const expansion = expandSlashCommand(prompt, repoPath);
+  if (expansion) {
+    broadcastTerminal(nodeId, [{ type: 'system', text: `Expanding /${expansion.name}...` }]);
+    effectivePrompt = expansion.expanded;
+  } else if (/^\/[a-zA-Z][a-zA-Z0-9:-]*(?:\s|$)/.test(prompt)) {
+    broadcastTerminal(nodeId, [{ type: 'system', text: `Unknown command: ${prompt.split(/\s/)[0]}` }]);
+  }
+
   // Run the first turn
-  runTurn(session, prompt);
+  runTurn(session, effectivePrompt);
 }
 
 // ── Run a single turn (prompt → response) ───────────────────────────
@@ -285,13 +296,23 @@ export function sendInput(nodeId: string, text: string): void {
 
   console.log(`[sendInput:${nodeId}] starting new turn: ${text.slice(0, 120)}`);
 
+  // Expand slash commands
+  let effectiveText = text;
+  const expansion = expandSlashCommand(text, session.repoPath);
+  if (expansion) {
+    broadcastTerminal(nodeId, [{ type: 'system', text: `Expanding /${expansion.name}...` }]);
+    effectiveText = expansion.expanded;
+  } else if (/^\/[a-zA-Z][a-zA-Z0-9:-]*(?:\s|$)/.test(text)) {
+    broadcastTerminal(nodeId, [{ type: 'system', text: `Unknown command: ${text.split(/\s/)[0]}` }]);
+  }
+
   // Update node state to running (may have been idle between turns)
   const updated = updateNode(nodeId, { nodeState: 'running' });
   if (updated) {
     broadcast({ type: 'node_updated', node: updated });
   }
 
-  runTurn(session, text);
+  runTurn(session, effectiveText);
 }
 
 // ── Query session state ─────────────────────────────────────────────
