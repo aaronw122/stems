@@ -3,7 +3,7 @@ import { useTerminal } from '../../hooks/useTerminal.ts';
 import { useFloatingWindow } from '../../hooks/useFloatingWindow.ts';
 import { useGraph } from '../../hooks/useGraph.ts';
 import { useAutocomplete } from '../../hooks/useAutocomplete.ts';
-import type { TerminalMessage, WeftNode } from '../../../shared/types.ts';
+import type { TerminalMessage, WeftNode, ImageAttachment, QueuedMessage } from '../../../shared/types.ts';
 import { TerminalMessageRenderer } from './TerminalMessageRenderer.tsx';
 import { AutocompleteDropdown } from './AutocompleteDropdown.tsx';
 import { SubagentSummary } from './SubagentSummary.tsx';
@@ -46,7 +46,7 @@ interface TerminalPeekProps {
   nodeTitle: string;
   containerRef: React.RefObject<HTMLElement | null>;
   onClose: () => void;
-  onSendInput: (text: string) => void;
+  onSendInput: (text: string, images?: ImageAttachment[]) => void;
   onStopSession: () => void;
   onDequeue: (action: 'pop_last' | 'clear_all') => void;
 }
@@ -68,9 +68,12 @@ const EDGE_CURSORS: Record<ResizeEdge, string> = {
 
 export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendInput, onStopSession, onDequeue }: TerminalPeekProps) {
   const [input, setInput] = useState('');
+  const [images, setImages] = useState<ImageAttachment[]>([]);
+  const [selectedChipIndex, setSelectedChipIndex] = useState<number | null>(null);
   const [autoScroll, setAutoScroll] = useState(true);
   const [fontSize, setFontSize] = useState(12);
   const [isScrolling, setIsScrolling] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
   const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -91,6 +94,82 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
 
   const autocomplete = useAutocomplete(nodeId);
   const [cursorAtEnd, setCursorAtEnd] = useState(true);
+  const imageCounterRef = useRef(0);
+
+  // ── Image attachment helpers ────────────────────────────────────────
+
+  const readFileAsImage = useCallback((file: File): Promise<ImageAttachment> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = reader.result as string;
+        // Strip the data URL prefix to get raw base64
+        const base64 = dataUrl.split(',')[1] ?? '';
+        const mediaType = file.type || 'image/png';
+        imageCounterRef.current += 1;
+        const name = file.name || `Image #${imageCounterRef.current}`;
+        resolve({ data: base64, mediaType, name });
+      };
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
+  }, []);
+
+  const addImageFiles = useCallback(
+    async (files: FileList | File[]) => {
+      const imageFiles = Array.from(files).filter((f) =>
+        f.type.startsWith('image/'),
+      );
+      if (imageFiles.length === 0) return;
+
+      const newImages = await Promise.all(imageFiles.map(readFileAsImage));
+      setImages((prev) => [...prev, ...newImages]);
+      setSelectedChipIndex(null);
+    },
+    [readFileAsImage],
+  );
+
+  // ── Paste handler (Cmd+V with image data) ──────────────────────────
+
+  const handlePaste = useCallback(
+    (e: React.ClipboardEvent) => {
+      const files = e.clipboardData?.files;
+      if (files && files.length > 0) {
+        const hasImages = Array.from(files).some((f) => f.type.startsWith('image/'));
+        if (hasImages) {
+          e.preventDefault();
+          addImageFiles(files);
+        }
+      }
+    },
+    [addImageFiles],
+  );
+
+  // ── Drag and drop handlers ─────────────────────────────────────────
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+  }, []);
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDragOver(false);
+      if (e.dataTransfer?.files) {
+        addImageFiles(e.dataTransfer.files);
+      }
+    },
+    [addImageFiles],
+  );
 
   const messages = useTerminal((s) => s.buffers.get(nodeId) ?? EMPTY_MESSAGES);
   const queuedMessages = useTerminal((s) => s.queues.get(nodeId));
@@ -163,11 +242,14 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
 
   const handleSubmit = useCallback(() => {
     const trimmed = input.trim();
-    if (trimmed) {
-      onSendInput(trimmed);
+    if (trimmed || images.length > 0) {
+      onSendInput(trimmed, images.length > 0 ? images : undefined);
       setInput('');
+      setImages([]);
+      setSelectedChipIndex(null);
+      imageCounterRef.current = 0;
     }
-  }, [input, onSendInput]);
+  }, [input, images, onSendInput]);
 
   // Apply an autocomplete acceptance result to the textarea
   const applyAcceptance = useCallback(
@@ -282,11 +364,66 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
       }
 
 
+      // ── Image chip keyboard navigation ────────────────────────────
+      // When chips are focused (selectedChipIndex is not null):
+      if (selectedChipIndex !== null) {
+        if (e.key === 'ArrowLeft') {
+          e.preventDefault();
+          setSelectedChipIndex(Math.max(0, selectedChipIndex - 1));
+          return;
+        }
+        if (e.key === 'ArrowRight') {
+          e.preventDefault();
+          if (selectedChipIndex < images.length - 1) {
+            setSelectedChipIndex(selectedChipIndex + 1);
+          } else {
+            // Move focus back to textarea
+            setSelectedChipIndex(null);
+            inputRef.current?.focus();
+          }
+          return;
+        }
+        if (e.key === 'Backspace' || e.key === 'Delete') {
+          e.preventDefault();
+          setImages((prev) => prev.filter((_, i) => i !== selectedChipIndex));
+          if (images.length <= 1) {
+            setSelectedChipIndex(null);
+            inputRef.current?.focus();
+          } else if (selectedChipIndex >= images.length - 1) {
+            setSelectedChipIndex(images.length - 2);
+          }
+          return;
+        }
+        if (e.key === 'ArrowDown' || e.key === 'Escape') {
+          e.preventDefault();
+          setSelectedChipIndex(null);
+          inputRef.current?.focus();
+          return;
+        }
+        // Any other key — return focus to textarea
+        setSelectedChipIndex(null);
+        return;
+      }
+
+      // ArrowUp from empty input or cursor at position 0 — navigate to chips
+      if (e.key === 'ArrowUp' && images.length > 0) {
+        const el = inputRef.current;
+        const cursorPos = el?.selectionStart ?? 0;
+        if (!input || cursorPos === 0) {
+          e.preventDefault();
+          setSelectedChipIndex(images.length - 1);
+          return;
+        }
+      }
+
       // Up arrow — pop last queued message into input for editing
       if (e.key === 'ArrowUp' && !input && queuedMessages && queuedMessages.length > 0) {
         e.preventDefault();
         const lastQueued = queuedMessages[queuedMessages.length - 1]!;
-        setInput(lastQueued);
+        setInput(lastQueued.text);
+        if (lastQueued.images) {
+          setImages((prev) => [...prev, ...lastQueued.images!]);
+        }
         onDequeue('pop_last');
         // Resize textarea for the new content
         requestAnimationFrame(() => {
@@ -294,7 +431,7 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
           if (el) {
             el.style.height = 'auto';
             el.style.height = `${el.scrollHeight}px`;
-            el.setSelectionRange(lastQueued.length, lastQueued.length);
+            el.setSelectionRange(lastQueued.text.length, lastQueued.text.length);
           }
         });
         return;
@@ -303,8 +440,16 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
       // Escape — move all queued messages back to input
       if (e.key === 'Escape' && queuedMessages && queuedMessages.length > 0) {
         e.preventDefault();
-        const allQueued = queuedMessages.join('\n');
+        const allQueued = queuedMessages.map((m) => m.text).join('\n');
+        // Aggregate all images from queued messages
+        const queuedImages: ImageAttachment[] = [];
+        for (const m of queuedMessages) {
+          if (m.images) queuedImages.push(...m.images);
+        }
         setInput(allQueued);
+        if (queuedImages.length > 0) {
+          setImages((prev) => [...prev, ...queuedImages]);
+        }
         onDequeue('clear_all');
         requestAnimationFrame(() => {
           const el = inputRef.current;
@@ -322,7 +467,7 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
         handleSubmit();
       }
     },
-    [autocomplete, applyAcceptance, handleSubmit, input, nodeState, onStopSession, queuedMessages, onDequeue],
+    [autocomplete, applyAcceptance, handleSubmit, input, images, selectedChipIndex, nodeState, onStopSession, queuedMessages, onDequeue],
   );
 
   // Stop pointer events from reaching the canvas
@@ -342,8 +487,8 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
     );
     if (focusable.length === 0) return;
 
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
+    const first = focusable[0]!;
+    const last = focusable[focusable.length - 1]!;
 
     if (e.shiftKey) {
       if (document.activeElement === first) {
@@ -454,10 +599,15 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
           {showThinking && <ThinkingIndicator nodeId={nodeId} />}
           {queuedMessages && queuedMessages.length > 0 && (
             <div className="mt-1">
-              {queuedMessages.map((text, i) => (
+              {queuedMessages.map((msg, i) => (
                 <div key={`q-${i}`} className="my-0.5 flex items-start gap-1.5">
                   <span style={{ color: 'var(--term-user)' }}>›</span>
-                  <span style={{ color: 'var(--term-user)' }}>{text}</span>
+                  <span style={{ color: 'var(--term-user)' }}>
+                    {msg.images && msg.images.length > 0 && (
+                      <>{msg.images.map((img) => `[${img.name}]`).join(' ')} </>
+                    )}
+                    {msg.text}
+                  </span>
                 </div>
               ))}
               <div className="mt-0.5" style={{ color: 'var(--term-text-dim)', fontSize: `${fontSize - 1}px` }}>
@@ -494,11 +644,60 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
         </button>
       )}
 
-      {/* Input area — terminal-style with chevron */}
+      {/* Input area — terminal-style with chevron + image chips */}
       <div
-        className="flex items-start gap-2 px-4 py-2"
-        style={{ borderTop: '1px solid var(--term-input-border)' }}
+        className="flex flex-col px-4 py-2"
+        style={{
+          borderTop: '1px solid var(--term-input-border)',
+          ...(isDragOver ? { backgroundColor: 'rgba(59, 130, 246, 0.08)' } : {}),
+        }}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
       >
+        {/* Image chips */}
+        {images.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mb-1.5">
+            {images.map((img, i) => (
+              <span
+                key={i}
+                className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-xs"
+                style={{
+                  backgroundColor: selectedChipIndex === i
+                    ? 'rgba(59, 130, 246, 0.3)'
+                    : 'var(--term-input-bg, rgba(255,255,255,0.06))',
+                  color: 'var(--term-text)',
+                  border: selectedChipIndex === i
+                    ? '1px solid rgba(59, 130, 246, 0.6)'
+                    : '1px solid transparent',
+                  cursor: 'pointer',
+                }}
+                onClick={() => {
+                  setSelectedChipIndex(i);
+                }}
+              >
+                [{img.name}]
+                <button
+                  className="ml-0.5 leading-none opacity-60 hover:opacity-100"
+                  style={{ color: 'var(--term-text-dim)' }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setImages((prev) => prev.filter((_, idx) => idx !== i));
+                    if (selectedChipIndex === i) {
+                      setSelectedChipIndex(null);
+                    } else if (selectedChipIndex !== null && selectedChipIndex > i) {
+                      setSelectedChipIndex(selectedChipIndex - 1);
+                    }
+                  }}
+                  aria-label={`Remove ${img.name}`}
+                >
+                  x
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+        <div className="flex items-start gap-2">
         <span
           className="font-mono text-sm leading-5 select-none pt-px"
           style={{ color: 'var(--term-text)' }}
@@ -538,6 +737,7 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
               const el = e.target as HTMLTextAreaElement;
               setCursorAtEnd(el.selectionStart === el.value.length);
             }}
+            onPaste={handlePaste}
             onKeyDown={handleKeyDown}
             rows={1}
             className="resize-none bg-transparent font-mono text-sm leading-5 outline-none w-full p-0"
@@ -547,6 +747,7 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
             aria-activedescendant={autocomplete.activeDescendantId ?? undefined}
             aria-controls={autocomplete.listboxId}
           />
+        </div>
         </div>
       </div>
 

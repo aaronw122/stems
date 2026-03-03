@@ -361,12 +361,16 @@ async function handleMessage(ws: ServerWebSocket<unknown>, raw: string): Promise
           sendInput(nodeId, payload.granted ? 'yes' : 'no');
           break;
         case 'text_input': {
-          const status = sendInput(nodeId, payload.text);
+          const images = payload.images;
+          const status = sendInput(nodeId, payload.text, images);
           // Only show the message immediately if it was sent (not queued).
           // Queued messages appear below the thinking indicator on the client,
           // and get broadcast as regular user_messages when the turn completes.
           if (status !== 'queued') {
-            broadcastTerminal(nodeId, [{ type: 'user_message', text: payload.text }]);
+            const displayText = images && images.length > 0
+              ? `${images.map((img) => `[${img.name}]`).join(' ')} ${payload.text}`
+              : payload.text;
+            broadcastTerminal(nodeId, [{ type: 'user_message', text: displayText }]);
           }
           break;
         }
@@ -579,6 +583,71 @@ const server = Bun.serve({
       return new Response(JSON.stringify({ commands: fallbackCommands, source: 'fallback' }), {
         headers: { 'Content-Type': 'application/json' },
       });
+    }
+
+    // Resolve a local image file to base64 for image attachment
+    if (url.pathname === '/api/resolve-image') {
+      const nodeId = url.searchParams.get('nodeId');
+      const imagePath = url.searchParams.get('path');
+
+      if (!nodeId || !imagePath) {
+        return new Response(JSON.stringify({ error: 'Missing nodeId or path parameter' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      const repoPath = findRepoPath(nodeId);
+      if (!repoPath) {
+        return new Response(JSON.stringify({ error: 'Could not resolve repo path' }), {
+          status: 404,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      // Resolve relative paths against the repo root
+      const resolvedPath = imagePath.startsWith('/') ? imagePath : join(repoPath, imagePath);
+
+      // Validate extension
+      const ext = resolvedPath.split('.').pop()?.toLowerCase();
+      const mimeMap: Record<string, string> = {
+        png: 'image/png',
+        jpg: 'image/jpeg',
+        jpeg: 'image/jpeg',
+        gif: 'image/gif',
+        webp: 'image/webp',
+      };
+      const mediaType = ext ? mimeMap[ext] : undefined;
+      if (!mediaType) {
+        return new Response(JSON.stringify({ error: 'Unsupported image format' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      try {
+        const file = Bun.file(resolvedPath);
+        if (!(await file.exists())) {
+          return new Response(JSON.stringify({ error: 'File not found' }), {
+            status: 404,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+
+        const buffer = await file.arrayBuffer();
+        const data = Buffer.from(buffer).toString('base64');
+        const name = basename(resolvedPath);
+
+        return new Response(JSON.stringify({ data, mediaType, name }), {
+          headers: { 'Content-Type': 'application/json' },
+        });
+      } catch (err) {
+        console.error('[resolve-image] error:', err);
+        return new Response(JSON.stringify({ error: String(err) }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
     }
 
     // Static file serving for production builds
