@@ -227,7 +227,15 @@ body {
   color: var(--term-text-dim);
 }
 
-.terminal-context-bar {
+.terminal-context-bar-filled {
+  color: #3fb950;
+  letter-spacing: -1px;
+  font-size: 10px;
+}
+
+.terminal-context-bar-empty {
+  color: #3fb950;
+  opacity: 0.25;
   letter-spacing: -1px;
   font-size: 10px;
 }

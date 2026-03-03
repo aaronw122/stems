@@ -521,8 +521,10 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
               <span className="terminal-status-divider"> | </span>
               <span className="terminal-status-context">
                 Context remaining:{' '}
-                <span className="terminal-context-bar">
+                <span className="terminal-context-bar-filled">
                   {'█'.repeat(Math.round(contextPercent / 5))}
+                </span>
+                <span className="terminal-context-bar-empty">
                   {'░'.repeat(20 - Math.round(contextPercent / 5))}
                 </span>
                 {' '}{contextPercent.toFixed(1)}%
