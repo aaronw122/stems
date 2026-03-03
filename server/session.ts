@@ -23,9 +23,14 @@ interface Session {
 const sessions = new Map<string, Session>();
 
 // ── Clean env — strip CLAUDECODE so child Claude processes don't refuse to start
+// Inject STEMS_OAUTH_TOKEN as CLAUDE_CODE_OAUTH_TOKEN so spawned sessions use
+// the user's Max/Pro subscription without polluting their normal CLI auth.
 
 function getCleanEnv(): Record<string, string | undefined> {
-  const { CLAUDECODE, CLAUDE_CODE_ENTRYPOINT, ...clean } = process.env;
+  const { CLAUDECODE, CLAUDE_CODE_ENTRYPOINT, STEMS_OAUTH_TOKEN, ...clean } = process.env;
+  if (STEMS_OAUTH_TOKEN) {
+    clean.CLAUDE_CODE_OAUTH_TOKEN = STEMS_OAUTH_TOKEN;
+  }
   return clean;
 }
 

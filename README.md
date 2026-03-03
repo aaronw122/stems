@@ -30,12 +30,14 @@ by default, the agent SDK bills against API credits — not your max/pro subscri
 claude setup-token
 ```
 
-this outputs your OAuth token. add it to your shell config so it persists across terminal sessions:
+this outputs your OAuth token. add it to your shell config as `STEMS_OAUTH_TOKEN`:
 
 ```bash
-echo 'export CLAUDE_CODE_OAUTH_TOKEN=<token from above>' >> ~/.zshrc
+echo 'export STEMS_OAUTH_TOKEN=<token from above>' >> ~/.zshrc
 source ~/.zshrc
 ```
+
+stems reads `STEMS_OAUTH_TOKEN` and injects it into spawned sessions automatically. this keeps the token scoped to stems — your normal `claude` CLI sessions stay on full OAuth so commands like `/usage` keep working.
 
 tokens are valid for one year. if you hit auth errors after that, re-run `claude setup-token` and update the value in your `~/.zshrc`.
 
