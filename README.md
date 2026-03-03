@@ -22,35 +22,32 @@ bun install
 
 Stems uses the [Claude Agent SDK](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk) to spawn sessions. You need one of the following auth methods:
 
-#### Option A: Max/Pro subscription (recommended)
+#### option a: max/pro subscription (recommended)
 
-By default, the Agent SDK bills against API credits — not your Max/Pro subscription. To use your subscription instead, export your OAuth token:
+by default, the agent SDK bills against API credits — not your max/pro subscription. to use your subscription instead, export your OAuth token:
 
 ```bash
 claude setup-token
 ```
 
-This outputs your OAuth token. Set it as an environment variable:
+this outputs your OAuth token. add it to your shell config so it persists across terminal sessions:
 
 ```bash
-export CLAUDE_CODE_OAUTH_TOKEN=<token from above>
+echo 'export CLAUDE_CODE_OAUTH_TOKEN=<token from above>' >> ~/.zshrc
+source ~/.zshrc
 ```
 
-Add it to your `~/.zshrc` or `~/.bashrc` to persist across sessions:
+tokens are valid for one year. if you hit auth errors after that, re-run `claude setup-token` and update the value in your `~/.zshrc`.
 
-```bash
-echo 'export CLAUDE_CODE_OAUTH_TOKEN=<token>' >> ~/.zshrc
-```
+#### option b: API key
 
-#### Option B: API key
-
-Set your Anthropic API key:
+set your Anthropic API key:
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-This bills directly against your API credit balance. Opus 4.6 sessions can burn through credits quickly.
+this bills directly against your API credit balance. opus 4.6 sessions can burn through credits quickly.
 
 ## Running
 
