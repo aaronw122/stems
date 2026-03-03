@@ -60,7 +60,7 @@ bun run dev:server   # bun websocket server
 bun run dev:client   # vite dev server
 ```
 
-the client opens at `http://localhost:5173` and the server runs on `http://localhost:3000`.
+in dev, open `http://localhost:7483` (vite dev server, proxies to the bun backend on `7482`). in production, the bun server serves everything at `http://localhost:7482`.
 
 ## usage
 
