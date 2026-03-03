@@ -86,7 +86,7 @@ Early-stage personal project. Prioritize simplicity — avoid over-engineering. 
 
 ## Safety Rules
 
-**Branch check before any edits.** Before modifying any file, run `git branch --show-current`. If you're on `main` (or `master`), **stop and create a feature branch first.** All work goes through feature branches and PRs — no commits on main, no pushes to main.
+**Branch check before any edits.** Before modifying any file, run `git branch --show-current` and confirm the current branch is the correct branch for this task. If it's `main`/`master`, or an unrelated feature branch, **stop — do not edit.** Instead, create a worktree for the new work: `git worktree add .claude/worktrees/<task-name> -b feat/<task-name>` and work there. The only time you should edit in-place is when the current branch already belongs to the task at hand. When in doubt, ask.
 
 **Worktree isolation for subagents.** Any Agent tool call that creates branches, switches branches, or does work intended for a different branch **must** use `isolation: "worktree"`. This gives the agent its own copy of the repo, preventing branch collisions where edits land on the wrong branch. If unsure whether an agent needs isolation, default to using it — the cost is negligible, the cost of a branch collision is not.
 
