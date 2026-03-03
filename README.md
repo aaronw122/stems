@@ -30,14 +30,14 @@ By default, the Agent SDK bills against API credits — not your Max/Pro subscri
 claude setup-token
 ```
 
-This outputs your OAuth token. Set it before starting stems:
+This outputs your OAuth token. Add it to your shell config so it persists across terminal sessions:
 
 ```bash
-export CLAUDE_CODE_OAUTH_TOKEN=<token from above>
-bun run dev
+echo 'export CLAUDE_CODE_OAUTH_TOKEN=<token from above>' >> ~/.zshrc
+source ~/.zshrc
 ```
 
-> **Note:** OAuth tokens may expire. If you get auth errors, re-run `claude setup-token` to get a fresh token.
+Tokens are valid for one year. If you hit auth errors after that, re-run `claude setup-token` and update the value in your `~/.zshrc`.
 
 #### Option B: API key
 
