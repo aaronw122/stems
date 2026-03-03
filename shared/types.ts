@@ -112,7 +112,8 @@ export type ClientMessage =
   | { type: 'stop_session'; nodeId: string }
   | { type: 'delete_tree'; nodeId: string }
   | { type: 'node_moved'; nodeId: string; x: number; y: number }
-  | { type: 'send_input'; nodeId: string; payload: SendInputPayload };
+  | { type: 'send_input'; nodeId: string; payload: SendInputPayload }
+  | { type: 'dequeue'; nodeId: string; action: 'pop_last' | 'clear_all' };
 
 // ── Server -> Client messages ────────────────────────────────────────
 
@@ -125,6 +126,7 @@ export type ServerMessage =
   | { type: 'terminal_replay'; nodeId: string; messages: TerminalMessage[] }
   | { type: 'done_list_updated'; doneList: WeftNode[] }
   | { type: 'tree_removed'; nodeIds: string[] }
+  | { type: 'queue_update'; nodeId: string; messages: string[] }
   | { type: 'error'; message: string };
 
 // ── Autocomplete ────────────────────────────────────────────────────

@@ -168,6 +168,15 @@ export default function App() {
     [selectedNodeId, send],
   );
 
+  const handleDequeue = useCallback(
+    (action: 'pop_last' | 'clear_all') => {
+      if (selectedNodeId) {
+        send({ type: 'dequeue', nodeId: selectedNodeId, action });
+      }
+    },
+    [selectedNodeId, send],
+  );
+
   // Get the title for the selected node (only needed when terminal is shown)
   const selectedNodeTitle =
     selectedNodeId && selectedNodeType !== 'repo'
@@ -223,6 +232,7 @@ export default function App() {
             onClose={handleTerminalClose}
             onSendInput={handleTerminalInput}
             onStopSession={handleStopSession}
+            onDequeue={handleDequeue}
           />
         )}
 
