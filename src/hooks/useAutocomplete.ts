@@ -66,12 +66,15 @@ function detectTrigger(value: string, cursorPos: number): TriggerState | null {
     }
   }
 
-  // Check for `/` trigger: must be first char on current line
-  if (value[lineStart] === '/') {
-    const query = value.slice(lineStart + 1, cursorPos);
-    // Dismiss if query contains a space
-    if (query.includes(' ')) return null;
-    return { type: '/', triggerIndex: lineStart, query };
+  // Check for `/` trigger: scan backward from cursor to find `/`
+  // Must be at line start or preceded by whitespace (avoids file paths like /usr/local)
+  for (let i = cursorPos - 1; i >= lineStart; i--) {
+    if (value[i] === '/') {
+      if (i > lineStart && value[i - 1] !== ' ' && value[i - 1] !== '\t') continue;
+      const query = value.slice(i + 1, cursorPos);
+      if (query.includes(' ') || query.includes('/')) return null;
+      return { type: '/', triggerIndex: i, query };
+    }
   }
 
   // Check for `@` trigger: scan backward from cursor toward lineStart
@@ -94,15 +97,7 @@ function computeAcceptance(
   item: AutocompleteItem,
   inputValue: string,
 ): { newValue: string; newCursorPosition: number } {
-  if (trigger.type === '/') {
-    // Replace entire input with the command's insertText
-    return {
-      newValue: item.insertText,
-      newCursorPosition: item.insertText.length,
-    };
-  }
-
-  // `@` trigger: replace @query with the file path at trigger position
+  // Replace trigger + query with the item's insertText, preserving surrounding text
   const before = inputValue.slice(0, trigger.triggerIndex);
   const after = inputValue.slice(trigger.triggerIndex + 1 + trigger.query.length);
   const newValue = before + item.insertText + after;

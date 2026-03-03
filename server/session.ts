@@ -3,7 +3,7 @@ import type { Query, Options, SlashCommand, SDKSystemMessage } from '@anthropic-
 import { updateNode, getNode, broadcast, broadcastTerminal } from './state.ts';
 import { createMessageProcessor } from './message-processor.ts';
 import { autoMoveIfComplete } from './completion.ts';
-import { expandSlashCommand } from './slash-expand.ts';
+import { expandSlashCommand, findSlashCommand } from './slash-expand.ts';
 
 // ── Session tracking ────────────────────────────────────────────────
 // Each session persists across multiple turns. Between turns, no query
@@ -132,8 +132,11 @@ export async function spawnSession(
   if (expansion) {
     broadcastTerminal(nodeId, [{ type: 'system', text: `Expanding /${expansion.name}...` }]);
     effectivePrompt = expansion.expanded;
-  } else if (/^\/[a-zA-Z][a-zA-Z0-9:-]*(?:\s|$)/.test(prompt)) {
-    broadcastTerminal(nodeId, [{ type: 'system', text: `Unknown command: ${prompt.split(/\s/)[0]}` }]);
+  } else {
+    const cmd = findSlashCommand(prompt);
+    if (cmd) {
+      broadcastTerminal(nodeId, [{ type: 'system', text: `Unknown command: /${cmd.name}` }]);
+    }
   }
 
   // Run the first turn
@@ -349,8 +352,11 @@ export function sendInput(nodeId: string, text: string): 'sent' | 'queued' | 'dr
   if (expansion) {
     broadcastTerminal(nodeId, [{ type: 'system', text: `Expanding /${expansion.name}...` }]);
     effectiveText = expansion.expanded;
-  } else if (/^\/[a-zA-Z][a-zA-Z0-9:-]*(?:\s|$)/.test(text)) {
-    broadcastTerminal(nodeId, [{ type: 'system', text: `Unknown command: ${text.split(/\s/)[0]}` }]);
+  } else {
+    const cmd = findSlashCommand(text);
+    if (cmd) {
+      broadcastTerminal(nodeId, [{ type: 'system', text: `Unknown command: /${cmd.name}` }]);
+    }
   }
 
   // Update node state to running (may have been idle between turns)
