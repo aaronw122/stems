@@ -34,7 +34,8 @@ import { stopPolling as stopPRPolling, stopTracking as stopPRTracking } from './
 import { summarizeContext } from './context-summary.ts';
 import { loadWorkspace } from './persistence.ts';
 import { getCustomSkills } from './skill-scanner.ts';
-import { join, basename } from 'node:path';
+import { join, basename, resolve } from 'node:path';
+import { realpath } from 'node:fs/promises';
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -345,8 +346,12 @@ async function handleMessage(ws: ServerWebSocket<unknown>, raw: string): Promise
             generateFeatureTitle(nodeId, payload.text, repoPath);
           }
 
-          broadcastTerminal(nodeId, [{ type: 'user_message', text: payload.text }]);
-          await spawnSession(nodeId, repoPath, payload.text, appendSystemPrompt);
+          const spawnImages = payload.images;
+          const spawnDisplayText = spawnImages && spawnImages.length > 0
+            ? `${spawnImages.map((img) => `[${img.name}]`).join(' ')} ${payload.text}`
+            : payload.text;
+          broadcastTerminal(nodeId, [{ type: 'user_message', text: spawnDisplayText }]);
+          await spawnSession(nodeId, repoPath, payload.text, appendSystemPrompt, spawnImages);
           break;
         }
       }
@@ -607,6 +612,23 @@ const server = Bun.serve({
 
       // Resolve relative paths against the repo root
       const resolvedPath = imagePath.startsWith('/') ? imagePath : join(repoPath, imagePath);
+
+      // Path traversal protection — resolved path must be within repo
+      try {
+        const normalizedRepo = await realpath(repoPath);
+        const normalizedPath = await realpath(resolvedPath);
+        if (!normalizedPath.startsWith(normalizedRepo + '/')) {
+          return new Response(JSON.stringify({ error: 'Path outside repository' }), {
+            status: 403,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+      } catch {
+        return new Response(JSON.stringify({ error: 'File not found' }), {
+          status: 404,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
 
       // Validate extension
       const ext = resolvedPath.split('.').pop()?.toLowerCase();

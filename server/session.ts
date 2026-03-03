@@ -105,6 +105,7 @@ export async function spawnSession(
   repoPath: string,
   prompt: string,
   appendSystemPrompt?: string,
+  images?: ImageAttachment[],
 ): Promise<void> {
   // Build shared options (reused across turns)
   const baseOptions: Omit<Options, 'abortController' | 'resume'> = {
@@ -157,7 +158,7 @@ export async function spawnSession(
   }
 
   // Run the first turn
-  runTurn(session, effectivePrompt);
+  runTurn(session, effectivePrompt, images);
 }
 
 // ── Build multimodal prompt with images ──────────────────────────────
@@ -179,7 +180,9 @@ function buildImagePrompt(
       },
     });
   }
-  content.push({ type: 'text', text });
+  if (text) {
+    content.push({ type: 'text', text });
+  }
 
   return (async function* () {
     yield {

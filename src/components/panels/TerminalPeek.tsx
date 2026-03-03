@@ -385,12 +385,13 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
         }
         if (e.key === 'Backspace' || e.key === 'Delete') {
           e.preventDefault();
+          const newLength = images.length - 1;
           setImages((prev) => prev.filter((_, i) => i !== selectedChipIndex));
-          if (images.length <= 1) {
+          if (newLength <= 0) {
             setSelectedChipIndex(null);
             inputRef.current?.focus();
-          } else if (selectedChipIndex >= images.length - 1) {
-            setSelectedChipIndex(images.length - 2);
+          } else if (selectedChipIndex >= newLength) {
+            setSelectedChipIndex(newLength - 1);
           }
           return;
         }
