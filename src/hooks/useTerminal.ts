@@ -1,14 +1,14 @@
 import { create } from 'zustand';
-import type { TerminalMessage } from '../../shared/types.ts';
+import type { TerminalMessage, QueuedMessage } from '../../shared/types.ts';
 
 const MAX_MESSAGES = 500;
 
 interface TerminalState {
   buffers: Map<string, TerminalMessage[]>;
-  queues: Map<string, string[]>;
+  queues: Map<string, QueuedMessage[]>;
   appendMessages: (nodeId: string, messages: TerminalMessage[]) => void;
   setMessages: (nodeId: string, messages: TerminalMessage[]) => void;
-  setQueue: (nodeId: string, messages: string[]) => void;
+  setQueue: (nodeId: string, messages: QueuedMessage[]) => void;
   getMessages: (nodeId: string) => TerminalMessage[];
   clear: (nodeId: string) => void;
 }
@@ -78,7 +78,7 @@ export const useTerminal = create<TerminalState>((set, get) => ({
     });
   },
 
-  setQueue(nodeId: string, messages: string[]) {
+  setQueue(nodeId: string, messages: QueuedMessage[]) {
     set((state) => {
       const newQueues = new Map(state.queues);
       if (messages.length === 0) {

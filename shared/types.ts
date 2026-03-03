@@ -94,12 +94,29 @@ export interface WeftEdge {
   target: string;
 }
 
+// ── Image attachments ────────────────────────────────────────────────
+
+export interface ImageAttachment {
+  /** base64-encoded image data (no data URL prefix) */
+  data: string;
+  /** MIME type: image/png, image/jpeg, image/gif, image/webp */
+  mediaType: string;
+  /** Display name (e.g., "screenshot.png" or "Image #1") */
+  name: string;
+}
+
+/** A queued message with optional image attachments */
+export interface QueuedMessage {
+  text: string;
+  images?: ImageAttachment[];
+}
+
 // ── Client -> Server messages ────────────────────────────────────────
 
 export type SendInputPayload =
   | { kind: 'question_answer'; answer: string }
   | { kind: 'permission'; granted: boolean }
-  | { kind: 'text_input'; text: string };
+  | { kind: 'text_input'; text: string; images?: ImageAttachment[] };
 
 export type ClientMessage =
   | { type: 'add_repo'; path: string }
@@ -126,7 +143,7 @@ export type ServerMessage =
   | { type: 'terminal_replay'; nodeId: string; messages: TerminalMessage[] }
   | { type: 'done_list_updated'; doneList: WeftNode[] }
   | { type: 'tree_removed'; nodeIds: string[] }
-  | { type: 'queue_update'; nodeId: string; messages: string[] }
+  | { type: 'queue_update'; nodeId: string; messages: QueuedMessage[] }
   | { type: 'error'; message: string };
 
 // ── Autocomplete ────────────────────────────────────────────────────

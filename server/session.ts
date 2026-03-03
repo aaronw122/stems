@@ -1,8 +1,29 @@
 import { query, AbortError } from '@anthropic-ai/claude-agent-sdk';
-import type { Query, Options, SlashCommand, SDKSystemMessage } from '@anthropic-ai/claude-agent-sdk';
+import type { Query, Options, SlashCommand, SDKSystemMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { updateNode, getNode, broadcast, broadcastTerminal } from './state.ts';
 import { createMessageProcessor } from './message-processor.ts';
 import { autoMoveIfComplete } from './completion.ts';
+import { expandSlashCommand } from './slash-expand.ts';
+import type { ImageAttachment, QueuedMessage } from '../shared/types.ts';
+
+// Content block types for building multimodal prompts (matches Anthropic SDK MessageParam)
+type ImageMediaType = 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp';
+
+interface ImageContentBlock {
+  type: 'image';
+  source: {
+    type: 'base64';
+    media_type: ImageMediaType;
+    data: string;
+  };
+}
+
+interface TextContentBlock {
+  type: 'text';
+  text: string;
+}
+
+type ContentBlock = ImageContentBlock | TextContentBlock;
 import { expandSlashCommand, findSlashCommand } from './slash-expand.ts';
 import { execSync } from 'node:child_process';
 
@@ -30,7 +51,7 @@ interface Session {
   processor: ReturnType<typeof createMessageProcessor>;
   abortController: AbortController | null;  // non-null only during an active turn
   slashCommands: SlashCommand[] | null;  // captured from SDK init, used for autocomplete
-  pendingInputs: string[];  // queued user messages waiting for current turn to complete
+  pendingInputs: QueuedMessage[];  // queued user messages waiting for current turn to complete
 }
 
 const sessions = new Map<string, Session>();
@@ -104,6 +125,7 @@ export async function spawnSession(
   repoPath: string,
   prompt: string,
   appendSystemPrompt?: string,
+  images?: ImageAttachment[],
 ): Promise<void> {
   // Build shared options (reused across turns)
   const baseOptions: Omit<Options, 'abortController' | 'resume'> = {
@@ -160,12 +182,45 @@ export async function spawnSession(
   }
 
   // Run the first turn
-  runTurn(session, effectivePrompt);
+  runTurn(session, effectivePrompt, images);
+}
+
+// ── Build multimodal prompt with images ──────────────────────────────
+
+function buildImagePrompt(
+  text: string,
+  images: ImageAttachment[],
+  sessionId: string | null,
+): AsyncIterable<SDKUserMessage> {
+  const content: ContentBlock[] = [];
+
+  for (const img of images) {
+    content.push({
+      type: 'image',
+      source: {
+        type: 'base64',
+        media_type: img.mediaType as ImageMediaType,
+        data: img.data,
+      },
+    });
+  }
+  if (text) {
+    content.push({ type: 'text', text });
+  }
+
+  return (async function* () {
+    yield {
+      type: 'user' as const,
+      message: { role: 'user' as const, content } as SDKUserMessage['message'],
+      parent_tool_use_id: null,
+      session_id: sessionId ?? '',
+    };
+  })();
 }
 
 // ── Run a single turn (prompt → response) ───────────────────────────
 
-function runTurn(session: Session, prompt: string): void {
+function runTurn(session: Session, prompt: string, images?: ImageAttachment[]): void {
   const { nodeId } = session;
   const abortController = new AbortController();
   session.abortController = abortController;
@@ -183,9 +238,14 @@ function runTurn(session: Session, prompt: string): void {
     delete options.systemPrompt;
   }
 
-  console.log(`[session:${nodeId}] running turn, resume=${session.sessionId ?? 'none'}, prompt: ${prompt.slice(0, 80)}...`);
+  console.log(`[session:${nodeId}] running turn, resume=${session.sessionId ?? 'none'}, prompt: ${prompt.slice(0, 80)}...${images?.length ? ` (${images.length} image(s))` : ''}`);
 
-  const queryInstance = query({ prompt, options });
+  // Use multimodal prompt when images are present, plain string otherwise
+  const effectivePrompt = images && images.length > 0
+    ? buildImagePrompt(prompt, images, session.sessionId)
+    : prompt;
+
+  const queryInstance = query({ prompt: effectivePrompt, options });
 
   // Consume the query stream in the background
   consumeTurn(session, queryInstance).catch((err) => {
@@ -318,18 +378,29 @@ async function consumeTurn(session: Session, queryInstance: Query): Promise<void
 function processPendingInputs(session: Session): void {
   const { nodeId } = session;
   const pending = session.pendingInputs.splice(0);
-  const combinedPrompt = pending.join('\n\n');
+  const combinedPrompt = pending.map((m) => m.text).join('\n\n');
+
+  // Aggregate all images from queued messages
+  const allImages: ImageAttachment[] = [];
+  for (const msg of pending) {
+    if (msg.images && msg.images.length > 0) {
+      allImages.push(...msg.images);
+    }
+  }
 
   // Broadcast each queued message as a regular user_message (they now appear
   // in the conversation above the new thinking indicator)
-  for (const text of pending) {
-    broadcastTerminal(nodeId, [{ type: 'user_message', text }]);
+  for (const msg of pending) {
+    const displayText = msg.images && msg.images.length > 0
+      ? `${msg.images.map((img) => `[${img.name}]`).join(' ')} ${msg.text}`
+      : msg.text;
+    broadcastTerminal(nodeId, [{ type: 'user_message', text: displayText }]);
   }
 
   // Clear the queue on the client
   broadcast({ type: 'queue_update', nodeId, messages: [] });
 
-  console.log(`[session:${nodeId}] turn completed, processing ${pending.length} queued message(s)`);
+  console.log(`[session:${nodeId}] turn completed, processing ${pending.length} queued message(s)${allImages.length ? ` with ${allImages.length} image(s)` : ''}`);
 
   // Expand slash commands on the combined prompt
   let effectiveText = combinedPrompt;
@@ -344,12 +415,12 @@ function processPendingInputs(session: Session): void {
     broadcast({ type: 'node_updated', node: updated });
   }
 
-  runTurn(session, effectiveText);
+  runTurn(session, effectiveText, allImages.length > 0 ? allImages : undefined);
 }
 
 // ── Send input to a session ─────────────────────────────────────────
 
-export function sendInput(nodeId: string, text: string): 'sent' | 'queued' | 'dropped' {
+export function sendInput(nodeId: string, text: string, images?: ImageAttachment[]): 'sent' | 'queued' | 'dropped' {
   const session = sessions.get(nodeId);
   if (!session) {
     console.warn(`[sendInput:${nodeId}] no session found — input dropped`);
@@ -358,13 +429,13 @@ export function sendInput(nodeId: string, text: string): 'sent' | 'queued' | 'dr
 
   if (session.abortController) {
     // Queue the message — will be sent when the current turn finishes
-    session.pendingInputs.push(text);
+    session.pendingInputs.push({ text, images });
     console.log(`[sendInput:${nodeId}] turn in progress — queued (${session.pendingInputs.length} pending)`);
     broadcast({ type: 'queue_update', nodeId, messages: [...session.pendingInputs] });
     return 'queued';
   }
 
-  console.log(`[sendInput:${nodeId}] starting new turn: ${text.slice(0, 120)}`);
+  console.log(`[sendInput:${nodeId}] starting new turn: ${text.slice(0, 120)}${images?.length ? ` (${images.length} image(s))` : ''}`);
 
   // Expand slash commands
   let effectiveText = text;
@@ -385,7 +456,7 @@ export function sendInput(nodeId: string, text: string): 'sent' | 'queued' | 'dr
     broadcast({ type: 'node_updated', node: updated });
   }
 
-  runTurn(session, effectiveText);
+  runTurn(session, effectiveText, images);
   return 'sent';
 }
 
@@ -398,11 +469,11 @@ export function isSessionBusy(nodeId: string): boolean {
 
 // ── Dequeue pending inputs ───────────────────────────────────────────
 
-export function dequeueInput(nodeId: string, action: 'pop_last' | 'clear_all'): string[] {
+export function dequeueInput(nodeId: string, action: 'pop_last' | 'clear_all'): QueuedMessage[] {
   const session = sessions.get(nodeId);
   if (!session || session.pendingInputs.length === 0) return [];
 
-  let removed: string[];
+  let removed: QueuedMessage[];
   if (action === 'pop_last') {
     removed = [session.pendingInputs.pop()!];
   } else {

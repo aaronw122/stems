@@ -5,6 +5,7 @@ import { TerminalPeek } from './components/panels/TerminalPeek.tsx';
 import { DoneList } from './components/panels/DoneList.tsx';
 import { useWebSocket } from './hooks/useWebSocket.ts';
 import { useGraph } from './hooks/useGraph.ts';
+import type { ImageAttachment } from '../shared/types.ts';
 
 export default function App() {
   const processMessage = useGraph((s) => s.processMessage);
@@ -156,12 +157,12 @@ export default function App() {
   }, [selectedNodeId, send]);
 
   const handleTerminalInput = useCallback(
-    (text: string) => {
+    (text: string, images?: ImageAttachment[]) => {
       if (selectedNodeId) {
         send({
           type: 'send_input',
           nodeId: selectedNodeId,
-          payload: { kind: 'text_input', text },
+          payload: { kind: 'text_input', text, images },
         });
       }
     },
