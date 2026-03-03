@@ -49,6 +49,7 @@ interface TerminalPeekProps {
   onSendInput: (text: string) => void;
   onStopSession: () => void;
   onDequeue: (action: 'pop_last' | 'clear_all') => void;
+  onOpenMarkdown?: (filePath: string) => void;
 }
 
 const EMPTY_MESSAGES: TerminalMessage[] = [];
@@ -66,7 +67,7 @@ const EDGE_CURSORS: Record<ResizeEdge, string> = {
   sw: 'nesw-resize',
 };
 
-export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendInput, onStopSession, onDequeue }: TerminalPeekProps) {
+export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendInput, onStopSession, onDequeue, onOpenMarkdown }: TerminalPeekProps) {
   const [input, setInput] = useState('');
   const [autoScroll, setAutoScroll] = useState(true);
   const [fontSize, setFontSize] = useState(12);
@@ -160,6 +161,17 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
     if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
     scrollTimeoutRef.current = setTimeout(() => setIsScrolling(false), 1000);
   }, []);
+
+  // Event delegation for .md-file-link clicks (from dangerouslySetInnerHTML content)
+  const handleTerminalClick = useCallback((e: React.MouseEvent) => {
+    const target = e.target as HTMLElement;
+    const link = target.closest('.md-file-link') as HTMLElement | null;
+    if (link?.dataset.mdPath) {
+      const path = link.dataset.mdPath;
+      const resolved = path.startsWith('/') ? path : `${bannerData?.cwd ?? ''}/${path}`;
+      onOpenMarkdown?.(resolved);
+    }
+  }, [onOpenMarkdown, bannerData?.cwd]);
 
   const handleSubmit = useCallback(() => {
     const trimmed = input.trim();
@@ -443,6 +455,7 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
       <div
         ref={scrollRef}
         onScroll={handleScroll}
+        onClick={handleTerminalClick}
         className={`nowheel flex-1 overflow-y-auto px-4 py-3${isScrolling ? ' is-scrolling' : ''}`}
       >
         <pre className="whitespace-pre-wrap break-words font-mono" style={{ color: 'var(--term-text)', fontSize: `${fontSize}px`, lineHeight: '1.6' }}>
