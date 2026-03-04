@@ -68,6 +68,31 @@ function markdownToHtml(text: string): string {
   // 7. Unordered list items (- ...)
   html = html.replace(/^[-*]\s+(.+)$/gm, '  • $1');
 
+  // 8. Detect .md file paths and make them clickable
+  const MD_PATH_RE = /(?:\/[\w.\-]+)+\.md|(?:\.\/)?(?:[\w.\-]+\/)*[\w.\-]+\.md/g;
+  html = html.replace(MD_PATH_RE, (match) =>
+    `<span class="md-file-link" data-md-path="${match}" role="button" tabindex="0">${match}</span>`
+  );
+
+  return html;
+}
+
+// ── File-tool path linkification ─────────────────────────────────
+// For Read/Write/Edit tool_use messages, wrap .md paths in clickable spans
+const FILE_TOOLS = new Set(['Read', 'Write', 'Edit']);
+const MD_PATH_RE = /(?:\/[\w.\-]+)+\.md|(?:\.\/)?(?:[\w.\-]+\/)*[\w.\-]+\.md/g;
+
+function linkifyMdPaths(text: string): string {
+  // Escape HTML first, then apply linkification
+  let html = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+  // Reset lastIndex — the /g flag makes .test() stateful on the same regex object
+  MD_PATH_RE.lastIndex = 0;
+  html = html.replace(MD_PATH_RE, (match) =>
+    `<span class="md-file-link" data-md-path="${match}" role="button" tabindex="0">${match}</span>`
+  );
   return html;
 }
 
@@ -130,9 +155,14 @@ export function TerminalMessageRenderer({ message }: TerminalMessageRendererProp
                 </span>
               )}
               {message.text && (
-                <span style={{ color: 'var(--term-text-dim)' }}>
-                  ({message.text})
-                </span>
+                FILE_TOOLS.has(message.toolName ?? '') && MD_PATH_RE.test(message.text)
+                  ? <span
+                      style={{ color: 'var(--term-text-dim)' }}
+                      dangerouslySetInnerHTML={{ __html: `(${linkifyMdPaths(message.text)})` }}
+                    />
+                  : <span style={{ color: 'var(--term-text-dim)' }}>
+                      ({message.text})
+                    </span>
               )}
             </span>
           </div>

@@ -3,6 +3,7 @@ import { FlowCanvas } from './components/FlowCanvas.tsx';
 import { PromptEditor } from './components/panels/PromptEditor.tsx';
 import { TerminalPeek } from './components/panels/TerminalPeek.tsx';
 import { DoneList } from './components/panels/DoneList.tsx';
+
 import { useWebSocket } from './hooks/useWebSocket.ts';
 import { useGraph } from './hooks/useGraph.ts';
 import type { ImageAttachment } from '../shared/types.ts';
@@ -243,6 +244,7 @@ export default function App() {
           isOpen={doneListOpen}
           onToggle={() => setDoneListOpen((prev) => !prev)}
         />
+
       </div>
     </div>
   );

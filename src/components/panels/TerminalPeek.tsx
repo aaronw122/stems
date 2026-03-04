@@ -240,6 +240,17 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
     scrollTimeoutRef.current = setTimeout(() => setIsScrolling(false), 1000);
   }, []);
 
+  // Event delegation for .md-file-link clicks — opens rendered markdown in new window
+  const handleTerminalClick = useCallback((e: React.MouseEvent) => {
+    const target = e.target as HTMLElement;
+    const link = target.closest('.md-file-link') as HTMLElement | null;
+    if (link?.dataset.mdPath) {
+      const params = new URLSearchParams({ path: link.dataset.mdPath });
+      if (bannerData?.cwd) params.set('cwd', bannerData.cwd);
+      window.open(`/api/view-md?${params}`, '_blank', 'width=900,height=700,scrollbars=yes');
+    }
+  }, [bannerData?.cwd]);
+
   const handleSubmit = useCallback(() => {
     const trimmed = input.trim();
     if (trimmed || images.length > 0) {
@@ -588,6 +599,7 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
       <div
         ref={scrollRef}
         onScroll={handleScroll}
+        onClick={handleTerminalClick}
         className={`nowheel flex-1 overflow-y-auto px-4 py-3${isScrolling ? ' is-scrolling' : ''}`}
       >
         <pre className="whitespace-pre-wrap break-words font-mono" style={{ color: 'var(--term-text)', fontSize: `${fontSize}px`, lineHeight: '1.6' }}>

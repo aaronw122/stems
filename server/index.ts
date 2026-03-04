@@ -1,4 +1,5 @@
 import type { ServerWebSocket } from 'bun';
+import { marked } from 'marked';
 import type { ClientMessage, WeftNode, WeftEdge } from '../shared/types.ts';
 import {
   addNode,
@@ -495,6 +496,145 @@ const server = Bun.serve({
           status: 500,
           headers: { 'Content-Type': 'application/json' },
         });
+      }
+    }
+
+    // Read a markdown file from disk
+    if (url.pathname === '/api/read-file') {
+      const filePath = url.searchParams.get('path');
+      const cwd = url.searchParams.get('cwd');
+      if (!filePath) {
+        return new Response(JSON.stringify({ error: 'Missing "path" query parameter' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (!filePath.endsWith('.md')) {
+        return new Response(JSON.stringify({ error: 'Only .md files are supported' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      try {
+        // Try multiple resolutions for relative paths
+        const candidates: string[] = [];
+        if (filePath.startsWith('/')) {
+          candidates.push(filePath);
+        } else if (cwd) {
+          // Try cwd first, then parent of cwd (handles repo-root-relative paths)
+          candidates.push(`${cwd}/${filePath}`);
+          const parentCwd = cwd.replace(/\/[^/]+$/, '');
+          if (parentCwd !== cwd) candidates.push(`${parentCwd}/${filePath}`);
+        }
+        // Always try the raw path last
+        candidates.push(filePath);
+
+        for (const candidate of candidates) {
+          const file = Bun.file(candidate);
+          if (await file.exists()) {
+            const content = await file.text();
+            return new Response(JSON.stringify({ content, path: candidate }), {
+              headers: { 'Content-Type': 'application/json' },
+            });
+          }
+        }
+        return new Response(JSON.stringify({ error: 'File not found' }), {
+          status: 404,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      } catch (err) {
+        console.error('[read-file] error:', err);
+        return new Response(JSON.stringify({ error: String(err) }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+    }
+
+    // Render a markdown file as a full HTML page (opens in new window)
+    if (url.pathname === '/api/view-md') {
+      const filePath = url.searchParams.get('path');
+      const cwd = url.searchParams.get('cwd');
+      if (!filePath) {
+        return new Response('Missing "path" query parameter', { status: 400 });
+      }
+      if (!filePath.endsWith('.md')) {
+        return new Response('Only .md files are supported', { status: 400 });
+      }
+      try {
+        const candidates: string[] = [];
+        if (filePath.startsWith('/')) {
+          candidates.push(filePath);
+        } else if (cwd) {
+          candidates.push(`${cwd}/${filePath}`);
+          const parentCwd = cwd.replace(/\/[^/]+$/, '');
+          if (parentCwd !== cwd) candidates.push(`${parentCwd}/${filePath}`);
+        }
+        candidates.push(filePath);
+
+        let content: string | null = null;
+        let resolvedPath = filePath;
+        for (const candidate of candidates) {
+          const file = Bun.file(candidate);
+          if (await file.exists()) {
+            content = await file.text();
+            resolvedPath = candidate;
+            break;
+          }
+        }
+        if (content === null) {
+          return new Response('File not found', { status: 404 });
+        }
+
+        const rendered = await marked(content);
+        const fileName = resolvedPath.split('/').pop() ?? resolvedPath;
+        const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>${fileName}</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: system-ui, -apple-system, sans-serif;
+    font-size: 15px;
+    line-height: 1.7;
+    color: #e4e4e7;
+    background: #18181b;
+    padding: 2rem 3rem;
+    max-width: 860px;
+    margin: 0 auto;
+  }
+  h1, h2, h3, h4, h5, h6 { font-weight: 600; color: #fafafa; margin: 1.5em 0 0.5em; line-height: 1.3; }
+  h1 { font-size: 1.75em; } h2 { font-size: 1.4em; } h3 { font-size: 1.2em; }
+  h4 { font-size: 1.05em; } h5 { font-size: 0.95em; } h6 { font-size: 0.85em; color: #a1a1aa; }
+  h1:first-child, h2:first-child, h3:first-child { margin-top: 0; }
+  p { margin: 0.75em 0; }
+  a { color: #58a6ff; text-decoration: none; } a:hover { text-decoration: underline; }
+  code { background: rgba(255,255,255,0.08); padding: 0.15em 0.4em; border-radius: 4px; font-size: 0.9em; }
+  pre { background: rgba(255,255,255,0.06); padding: 12px 16px; border-radius: 6px; overflow-x: auto; margin: 1em 0; }
+  pre code { background: none; padding: 0; border-radius: 0; font-size: 0.85em; }
+  ul, ol { padding-left: 1.5em; margin: 0.75em 0; }
+  li { margin: 0.25em 0; }
+  blockquote { border-left: 3px solid rgba(255,255,255,0.2); padding-left: 1em; margin: 1em 0; color: #a1a1aa; }
+  hr { border: none; border-top: 1px solid rgba(255,255,255,0.1); margin: 1.5em 0; }
+  table { border-collapse: collapse; width: 100%; margin: 1em 0; }
+  th, td { border: 1px solid rgba(255,255,255,0.12); padding: 8px 12px; text-align: left; }
+  th { font-weight: 600; background: rgba(255,255,255,0.04); }
+  img { max-width: 100%; border-radius: 4px; }
+  .file-path { font-size: 0.8em; color: #71717a; margin-bottom: 1.5rem; word-break: break-all; }
+</style>
+</head>
+<body>
+<div class="file-path">${resolvedPath}</div>
+${rendered}
+</body>
+</html>`;
+        return new Response(html, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+      } catch (err) {
+        console.error('[view-md] error:', err);
+        return new Response(`Error: ${String(err)}`, { status: 500 });
       }
     }
 
