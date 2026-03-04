@@ -156,6 +156,11 @@ export function createMessageProcessor(nodeId: string) {
   const subagentAccumulatedStats = new Map<string, { toolUseCount: number; totalTokens: number }>();
   const PHANTOM_REMOVAL_DELAY_MS = 2_000;
 
+  // Track the latest per-turn input_tokens from assistant messages.
+  // This represents the current conversation size (context fill level),
+  // NOT the cumulative total across all turns.
+  let lastTurnInputTokens = 0;
+
   function createSubagentNode(taskId: string, toolUseId: string | undefined, description: string): void {
     const phantomId = crypto.randomUUID();
     activeSubagents.set(taskId, phantomId);
@@ -313,6 +318,7 @@ export function createMessageProcessor(nodeId: string) {
   // ── Handle system init message ────────────────────────────────────
 
   function handleSystemInit(msg: SDKSystemMessage): void {
+    console.log(`[ctx-debug:${nodeId}] system init keys:`, Object.keys(msg), `cwd:${msg.cwd}, model:${msg.model}`);
     const updated = updateNode(nodeId, { sessionId: msg.session_id });
     if (updated) {
       broadcast({ type: 'node_updated', node: updated });
@@ -355,6 +361,17 @@ export function createMessageProcessor(nodeId: string) {
         }
       }
       return [];
+    }
+
+    // Track latest per-turn input tokens for context % calculation.
+    // input_tokens only counts non-cached tokens; the full context size
+    // includes cache_read and cache_creation tokens too.
+    const turnUsage = msg.message?.usage;
+    if (turnUsage) {
+      lastTurnInputTokens =
+        (turnUsage.input_tokens ?? 0) +
+        (turnUsage.cache_read_input_tokens ?? 0) +
+        (turnUsage.cache_creation_input_tokens ?? 0);
     }
 
     const messages: TerminalMessage[] = [];
@@ -513,12 +530,14 @@ export function createMessageProcessor(nodeId: string) {
       const modelUsageEntry: ModelUsage | undefined = Object.values(msg.modelUsage)[0];
       const contextWindow = modelUsageEntry?.contextWindow ?? null;
 
-      // Context % = how much of the window remains.
-      // input_tokens on the latest result reflects the full conversation size.
+      // Context % remaining — matches the CLI formula (RA1 in cli.js):
+      //   used = Math.round(totalInput / contextWindow * 100)
+      //   remaining = 100 - used
+      // where totalInput = input_tokens + cache_creation + cache_read
       let contextPercent: number | null = null;
-      if (contextWindow && contextWindow > 0) {
-        const used = msg.usage.input_tokens + msg.usage.output_tokens;
-        contextPercent = Math.max(0, Math.min(100, ((contextWindow - used) / contextWindow) * 100));
+      if (contextWindow && contextWindow > 0 && lastTurnInputTokens > 0) {
+        const usedPercent = Math.min(100, Math.max(0, Math.round(lastTurnInputTokens / contextWindow * 100)));
+        contextPercent = 100 - usedPercent;
       }
 
       const updated = updateNode(nodeId, {

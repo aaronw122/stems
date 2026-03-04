@@ -6,6 +6,7 @@ import { StageBadge } from '../ui/StageBadge.tsx';
 import { HumanFlash } from '../ui/HumanFlash.tsx';
 import { EditableTitle } from '../ui/EditableTitle.tsx';
 import { PRBadge } from '../ui/PRBadge.tsx';
+import { ContextBadge } from '../ui/ContextBadge.tsx';
 
 const STATE_STYLES: Record<NodeState, string> = {
   idle: 'border-zinc-500',
@@ -34,6 +35,8 @@ export function FeatureNode({ data, selected }: NodeProps) {
   const dotClass = STATE_DOT[node.nodeState] ?? STATE_DOT.idle;
 
   return (
+    <div className="relative">
+      <ContextBadge contextPercent={node.contextPercent} />
     <div className={`min-w-[180px] rounded-lg border-l-4 ${borderClass} bg-zinc-800 px-4 py-3 shadow-lg ${selected ? 'ring-2 ring-blue-500/50' : ''}`}>
       <div className="flex items-center gap-2">
         <div className={`h-2.5 w-2.5 rounded-full ${dotClass} shrink-0`} />
@@ -64,6 +67,7 @@ export function FeatureNode({ data, selected }: NodeProps) {
       <HumanFlash needsHuman={node.needsHuman} humanNeededType={node.humanNeededType} />
       <Handle type="target" position={Position.Left} className="!bg-zinc-400" />
       <Handle type="source" position={Position.Right} className="!bg-zinc-400" />
+    </div>
     </div>
   );
 }
