@@ -57,6 +57,8 @@ this bills directly against your API credit balance. opus 4.6 sessions can burn 
 
 ```bash
 # to use prod app
+# dist/ is not committed to git, so build first
+bun run build
 bun run start
 
 # to run dev for client and server
@@ -66,6 +68,8 @@ bun run dev
 bun run dev:server   # bun backend (http + websocket)
 bun run dev:client   # vite dev server
 ```
+
+`bun run start` serves static files from `dist/`. since `dist/` is gitignored, run `bun run build` first on a fresh clone (and after frontend changes).
 
 in production, the bun server serves everything at `http://localhost:7482`. in dev, open `http://localhost:7483` (vite dev server, proxies to the bun backend on `7482`). 
 
