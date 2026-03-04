@@ -3,7 +3,6 @@ import type { Query, Options, SlashCommand, SDKSystemMessage, SDKUserMessage } f
 import { updateNode, getNode, broadcast, broadcastTerminal } from './state.ts';
 import { createMessageProcessor } from './message-processor.ts';
 import { autoMoveIfComplete } from './completion.ts';
-import { expandSlashCommand } from './slash-expand.ts';
 import type { ImageAttachment, QueuedMessage } from '../shared/types.ts';
 
 // Content block types for building multimodal prompts (matches Anthropic SDK MessageParam)
@@ -134,6 +133,9 @@ export async function spawnSession(
     permissionMode: 'bypassPermissions',
     allowDangerouslySkipPermissions: true,
     includePartialMessages: true,
+    // SDK defaults to isolation mode unless settingSources is set explicitly.
+    // Include all standard sources so global + project CLAUDE.md files load.
+    settingSources: ['user', 'project', 'local'],
     pathToClaudeCodeExecutable: claudePath,
     env: getCleanEnv(),
   };

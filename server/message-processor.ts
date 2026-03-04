@@ -318,6 +318,7 @@ export function createMessageProcessor(nodeId: string) {
   // ── Handle system init message ────────────────────────────────────
 
   function handleSystemInit(msg: SDKSystemMessage): void {
+    console.log(`[ctx-debug:${nodeId}] system init keys:`, Object.keys(msg), `cwd:${msg.cwd}, model:${msg.model}`);
     const updated = updateNode(nodeId, { sessionId: msg.session_id });
     if (updated) {
       broadcast({ type: 'node_updated', node: updated });
