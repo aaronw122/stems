@@ -15,6 +15,7 @@ export default function App() {
 
   const [doneListOpen, setDoneListOpen] = useState(false);
   const [markdownPath, setMarkdownPath] = useState<string | null>(null);
+  const [markdownCwd, setMarkdownCwd] = useState('');
 
   // Ref to the canvas container for floating terminal positioning
   const canvasContainerRef = useRef<HTMLDivElement>(null);
@@ -237,7 +238,7 @@ export default function App() {
             onSendInput={handleTerminalInput}
             onStopSession={handleStopSession}
             onDequeue={handleDequeue}
-            onOpenMarkdown={setMarkdownPath}
+            onOpenMarkdown={(path, cwd) => { setMarkdownPath(path); setMarkdownCwd(cwd); }}
           />
         )}
 
@@ -249,7 +250,7 @@ export default function App() {
         />
 
         {/* Markdown file viewer overlay */}
-        <MarkdownViewer filePath={markdownPath} onClose={() => setMarkdownPath(null)} />
+        <MarkdownViewer filePath={markdownPath} cwd={markdownCwd} onClose={() => setMarkdownPath(null)} />
       </div>
     </div>
   );

@@ -4,10 +4,11 @@ import remarkGfm from 'remark-gfm';
 
 interface MarkdownViewerProps {
   filePath: string | null;
+  cwd?: string;
   onClose: () => void;
 }
 
-export function MarkdownViewer({ filePath, onClose }: MarkdownViewerProps) {
+export function MarkdownViewer({ filePath, cwd, onClose }: MarkdownViewerProps) {
   const [content, setContent] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -19,7 +20,9 @@ export function MarkdownViewer({ filePath, onClose }: MarkdownViewerProps) {
     setError(null);
     setContent('');
 
-    fetch(`/api/read-file?path=${encodeURIComponent(filePath)}`)
+    const params = new URLSearchParams({ path: filePath });
+    if (cwd) params.set('cwd', cwd);
+    fetch(`/api/read-file?${params}`)
       .then((res) => {
         if (!res.ok) throw new Error(`Failed to read file (${res.status})`);
         return res.json() as Promise<{ content: string }>;
@@ -33,7 +36,7 @@ export function MarkdownViewer({ filePath, onClose }: MarkdownViewerProps) {
       .finally(() => {
         setLoading(false);
       });
-  }, [filePath]);
+  }, [filePath, cwd]);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {

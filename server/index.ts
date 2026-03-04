@@ -492,6 +492,7 @@ const server = Bun.serve({
     // Read a markdown file from disk
     if (url.pathname === '/api/read-file') {
       const filePath = url.searchParams.get('path');
+      const cwd = url.searchParams.get('cwd');
       if (!filePath) {
         return new Response(JSON.stringify({ error: 'Missing "path" query parameter' }), {
           status: 400,
@@ -505,15 +506,30 @@ const server = Bun.serve({
         });
       }
       try {
-        const file = Bun.file(filePath);
-        if (!(await file.exists())) {
-          return new Response(JSON.stringify({ error: 'File not found' }), {
-            status: 404,
-            headers: { 'Content-Type': 'application/json' },
-          });
+        // Try multiple resolutions for relative paths
+        const candidates: string[] = [];
+        if (filePath.startsWith('/')) {
+          candidates.push(filePath);
+        } else if (cwd) {
+          // Try cwd first, then parent of cwd (handles repo-root-relative paths)
+          candidates.push(`${cwd}/${filePath}`);
+          const parentCwd = cwd.replace(/\/[^/]+$/, '');
+          if (parentCwd !== cwd) candidates.push(`${parentCwd}/${filePath}`);
         }
-        const content = await file.text();
-        return new Response(JSON.stringify({ content, path: filePath }), {
+        // Always try the raw path last
+        candidates.push(filePath);
+
+        for (const candidate of candidates) {
+          const file = Bun.file(candidate);
+          if (await file.exists()) {
+            const content = await file.text();
+            return new Response(JSON.stringify({ content, path: candidate }), {
+              headers: { 'Content-Type': 'application/json' },
+            });
+          }
+        }
+        return new Response(JSON.stringify({ error: 'File not found' }), {
+          status: 404,
           headers: { 'Content-Type': 'application/json' },
         });
       } catch (err) {

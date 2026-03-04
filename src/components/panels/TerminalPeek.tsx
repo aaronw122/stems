@@ -49,7 +49,7 @@ interface TerminalPeekProps {
   onSendInput: (text: string) => void;
   onStopSession: () => void;
   onDequeue: (action: 'pop_last' | 'clear_all') => void;
-  onOpenMarkdown?: (filePath: string) => void;
+  onOpenMarkdown?: (filePath: string, cwd: string) => void;
 }
 
 const EMPTY_MESSAGES: TerminalMessage[] = [];
@@ -167,9 +167,7 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
     const target = e.target as HTMLElement;
     const link = target.closest('.md-file-link') as HTMLElement | null;
     if (link?.dataset.mdPath) {
-      const path = link.dataset.mdPath;
-      const resolved = path.startsWith('/') ? path : `${bannerData?.cwd ?? ''}/${path}`;
-      onOpenMarkdown?.(resolved);
+      onOpenMarkdown?.(link.dataset.mdPath, bannerData?.cwd ?? '');
     }
   }, [onOpenMarkdown, bannerData?.cwd]);
 
