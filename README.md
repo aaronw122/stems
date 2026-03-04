@@ -26,7 +26,7 @@ stems uses the [Claude Agent SDK](https://www.npmjs.com/package/@anthropic-ai/cl
 
 #### option a: max/pro subscription (recommended)
 
-by default, the agent SDK bills against API credits — not your max/pro subscription. to use your subscription instead, export your OAuth token:
+by default, the agent SDK **bills against API credits** — not your max/pro subscription. to use your subscription instead, export your OAuth token:
 
 ```bash
 claude setup-token
