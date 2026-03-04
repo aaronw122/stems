@@ -633,6 +633,13 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
             </div>
           )}
         </pre>
+        {/* Structured question options — inside scroll area so user can scroll past */}
+        {questionPayload && (
+          <QuestionOptions
+            payload={questionPayload}
+            onAnswer={onAnswerQuestion}
+          />
+        )}
       </div>
 
       {/* Scroll indicator */}
@@ -652,14 +659,6 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
         >
           Scroll to bottom
         </button>
-      )}
-
-      {/* Structured question options — shown when Claude asks AskUserQuestion */}
-      {questionPayload && (
-        <QuestionOptions
-          payload={questionPayload}
-          onAnswer={onAnswerQuestion}
-        />
       )}
 
       {/* Input area — terminal-style with chevron + image chips */}
@@ -827,8 +826,13 @@ function parseQuestionPayload(raw: unknown): AskUserQuestionPayload | null {
   // Payload shape: { questions: [{ question, header, options, multiSelect }] }
   if (!Array.isArray(obj.questions) || obj.questions.length === 0) return null;
 
-  const first = obj.questions[0] as Record<string, unknown> | undefined;
-  if (!first || !Array.isArray(first.options) || first.options.length === 0) return null;
+  // Verify at least one question has options
+  const hasOptions = obj.questions.some((q: unknown) => {
+    if (!q || typeof q !== 'object') return false;
+    const qObj = q as Record<string, unknown>;
+    return Array.isArray(qObj.options) && qObj.options.length > 0;
+  });
+  if (!hasOptions) return null;
 
   return raw as AskUserQuestionPayload;
 }

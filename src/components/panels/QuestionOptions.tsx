@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import type { AskUserQuestionPayload } from '../../../shared/types.ts';
 
 interface QuestionOptionsProps {
@@ -6,165 +6,240 @@ interface QuestionOptionsProps {
   onAnswer: (answer: string) => void;
 }
 
-/**
- * Renders AskUserQuestion options as clickable buttons,
- * mirroring Claude CLI's multiple-choice UI.
- *
- * Only renders the first question in the `questions` array —
- * Claude typically sends one question per AskUserQuestion call.
- */
-export function QuestionOptions({ payload, onAnswer }: QuestionOptionsProps) {
-  // Track selected options for multiSelect questions
-  const [selected, setSelected] = useState<Set<number>>(new Set());
+const BORDER_DEFAULT = '1px solid rgba(255, 255, 255, 0.15)';
+const BORDER_SELECTED = '1px solid rgba(100, 160, 255, 0.6)';
+const BORDER_HOVER = '1px solid rgba(255, 255, 255, 0.28)';
 
-  // Derive question data — safe to use before early return since useMemo is always called
-  const question = useMemo(() => payload.questions?.[0] ?? null, [payload]);
-  const options = question?.options ?? [];
-  const multiSelect = question?.multiSelect ?? false;
+export function QuestionOptions({ payload, onAnswer }: QuestionOptionsProps) {
+  const [selections, setSelections] = useState<Map<number, Set<number>>>(new Map());
+  const [otherActive, setOtherActive] = useState(false);
+  const [otherText, setOtherText] = useState('');
+  const otherInputRef = useRef<HTMLInputElement>(null);
+
+  const questions = useMemo(() => payload.questions ?? [], [payload]);
+
+  // Focus the "Other" input when activated
+  useEffect(() => {
+    if (otherActive) {
+      requestAnimationFrame(() => otherInputRef.current?.focus());
+    }
+  }, [otherActive]);
 
   const handleClick = useCallback(
-    (index: number) => {
-      if (multiSelect) {
-        setSelected((prev) => {
-          const next = new Set(prev);
-          if (next.has(index)) next.delete(index);
-          else next.add(index);
-          return next;
-        });
-      } else {
-        // Single select — send immediately
-        onAnswer(options[index]!.label);
-      }
+    (qIndex: number, optIndex: number, multiSelect: boolean) => {
+      // Selecting a real option deactivates "Other"
+      setOtherActive(false);
+      setOtherText('');
+      setSelections((prev) => {
+        const next = new Map(prev);
+        if (multiSelect) {
+          const current = new Set(prev.get(qIndex) ?? []);
+          if (current.has(optIndex)) current.delete(optIndex);
+          else current.add(optIndex);
+          next.set(qIndex, current);
+        } else {
+          next.set(qIndex, new Set([optIndex]));
+        }
+        return next;
+      });
     },
-    [multiSelect, options, onAnswer],
+    [],
   );
 
-  const handleSubmitMulti = useCallback(() => {
-    if (selected.size === 0) return;
-    const labels = Array.from(selected)
-      .sort((a, b) => a - b)
-      .map((i) => options[i]!.label);
-    onAnswer(labels.join(', '));
-  }, [selected, options, onAnswer]);
+  const handleOtherClick = useCallback(() => {
+    // Clear all selections and activate "Other"
+    setSelections(new Map());
+    setOtherActive(true);
+  }, []);
 
-  // Early return AFTER all hooks
-  if (!question || options.length === 0) return null;
+  const handleSubmit = useCallback(() => {
+    // "Other" mode — submit typed text
+    if (otherActive) {
+      const trimmed = otherText.trim();
+      if (trimmed) onAnswer(trimmed);
+      return;
+    }
+    // Normal mode — submit selected option labels
+    const answers: string[] = [];
+    for (let qi = 0; qi < questions.length; qi++) {
+      const q = questions[qi]!;
+      const sel = selections.get(qi);
+      if (!sel || sel.size === 0) continue;
+      const labels = Array.from(sel)
+        .sort((a, b) => a - b)
+        .map((i) => q.options[i]!.label);
+      answers.push(labels.join(', '));
+    }
+    if (answers.length === 0) return;
+    onAnswer(answers.length === 1 ? answers[0]! : answers.join('\n'));
+  }, [otherActive, otherText, selections, questions, onAnswer]);
+
+  if (questions.length === 0) return null;
+
+  const hasSelection = Array.from(selections.values()).some((s) => s.size > 0);
+  const canSubmit = hasSelection || (otherActive && otherText.trim().length > 0);
 
   return (
-    <div
-      className="mx-4 my-2 rounded-md overflow-hidden"
-      style={{
-        border: '1px solid var(--term-human-needed-border)',
-        backgroundColor: 'var(--term-human-needed-bg)',
-      }}
-    >
-      {/* Question header */}
-      {question.header && (
-        <div
-          className="px-3 py-1.5 text-xs font-medium uppercase tracking-wide"
-          style={{
-            color: 'var(--term-human-needed-text)',
-            borderBottom: '1px solid var(--term-human-needed-border)',
-            opacity: 0.7,
-          }}
-        >
-          {question.header}
-        </div>
-      )}
+    <div className="my-2">
+      {questions.map((q, qi) => {
+        const opts = q.options ?? [];
+        if (opts.length === 0) return null;
+        const qSel = selections.get(qi) ?? new Set<number>();
 
-      {/* Options */}
-      <div className="flex flex-col">
-        {options.map((opt, i) => {
-          const isSelected = selected.has(i);
-          return (
-            <button
-              key={i}
-              onClick={() => handleClick(i)}
-              className="flex items-start gap-2.5 px-3 py-2 text-left transition-colors"
-              style={{
-                backgroundColor: isSelected
-                  ? 'color-mix(in srgb, var(--term-human-needed-border) 30%, transparent)'
-                  : 'transparent',
-                borderBottom:
-                  i < options.length - 1
-                    ? '1px solid color-mix(in srgb, var(--term-human-needed-border) 40%, transparent)'
-                    : 'none',
-                color: 'var(--term-text)',
-              }}
-              onMouseEnter={(e) => {
-                (e.currentTarget as HTMLElement).style.backgroundColor =
-                  'color-mix(in srgb, var(--term-human-needed-border) 20%, transparent)';
-              }}
-              onMouseLeave={(e) => {
-                (e.currentTarget as HTMLElement).style.backgroundColor = isSelected
-                  ? 'color-mix(in srgb, var(--term-human-needed-border) 30%, transparent)'
-                  : 'transparent';
-              }}
-            >
-              {/* Number badge */}
-              <span
-                className="flex-none w-5 h-5 rounded text-xs flex items-center justify-center font-mono mt-0.5"
+        return (
+          <div key={qi} className={qi > 0 ? 'mt-3' : ''}>
+            {q.header && (
+              <div
+                className="text-xs font-mono mb-1.5 ml-0.5"
+                style={{ color: 'var(--term-text-dim)' }}
+              >
+                {q.header}
+              </div>
+            )}
+
+            <div className="flex flex-col gap-1.5">
+              {opts.map((opt, oi) => {
+                const isSelected = qSel.has(oi);
+                return (
+                  <button
+                    key={oi}
+                    onClick={() => handleClick(qi, oi, q.multiSelect)}
+                    className="flex items-start gap-2.5 py-2 px-2.5 rounded-md text-left transition-all cursor-pointer"
+                    style={{
+                      border: isSelected ? BORDER_SELECTED : BORDER_DEFAULT,
+                      backgroundColor: 'transparent',
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!isSelected) e.currentTarget.style.border = BORDER_HOVER;
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.border = isSelected ? BORDER_SELECTED : BORDER_DEFAULT;
+                    }}
+                  >
+                    <span
+                      className="flex-none flex items-center justify-center mt-0.5"
+                      style={{ width: '16px', height: '16px' }}
+                    >
+                      {q.multiSelect ? (
+                        <svg width="14" height="14" viewBox="0 0 14 14">
+                          <rect
+                            x="1" y="1" width="12" height="12" rx="2"
+                            fill={isSelected ? 'rgba(100, 160, 255, 0.8)' : 'none'}
+                            stroke={isSelected ? 'rgba(100, 160, 255, 0.8)' : 'rgba(255, 255, 255, 0.35)'}
+                            strokeWidth="1.5"
+                          />
+                          {isSelected && (
+                            <path d="M4 7.5L6 9.5L10 4.5" stroke="var(--term-bg)" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+                          )}
+                        </svg>
+                      ) : (
+                        <svg width="14" height="14" viewBox="0 0 14 14">
+                          <circle
+                            cx="7" cy="7" r="5.5"
+                            fill="none"
+                            stroke={isSelected ? 'rgba(100, 160, 255, 0.8)' : 'rgba(255, 255, 255, 0.35)'}
+                            strokeWidth="1.5"
+                          />
+                          {isSelected && (
+                            <circle cx="7" cy="7" r="3" fill="rgba(100, 160, 255, 0.8)" />
+                          )}
+                        </svg>
+                      )}
+                    </span>
+                    <div className="flex-1 min-w-0 leading-5">
+                      <span className="text-sm" style={{ color: 'var(--term-text)' }}>
+                        {opt.label}
+                      </span>
+                      {opt.description && (
+                        <span className="text-xs ml-1.5" style={{ color: 'var(--term-text-dim)' }}>
+                          — {opt.description}
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
+
+              {/* Other — inline text input option */}
+              <button
+                onClick={handleOtherClick}
+                className="flex items-start gap-2.5 py-2 px-2.5 rounded-md text-left transition-all cursor-pointer"
                 style={{
-                  backgroundColor: isSelected
-                    ? 'var(--term-human-needed-border)'
-                    : 'color-mix(in srgb, var(--term-human-needed-border) 40%, transparent)',
-                  color: isSelected ? 'var(--term-bg)' : 'var(--term-text-dim)',
+                  border: otherActive ? BORDER_SELECTED : BORDER_DEFAULT,
+                  backgroundColor: 'transparent',
+                }}
+                onMouseEnter={(e) => {
+                  if (!otherActive) e.currentTarget.style.border = BORDER_HOVER;
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.border = otherActive ? BORDER_SELECTED : BORDER_DEFAULT;
                 }}
               >
-                {multiSelect ? (isSelected ? '✓' : ' ') : i + 1}
-              </span>
-
-              {/* Label + description */}
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium" style={{ color: 'var(--term-text)' }}>
-                  {opt.label}
+                <span
+                  className="flex-none flex items-center justify-center mt-0.5"
+                  style={{ width: '16px', height: '16px' }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 14 14">
+                    <circle
+                      cx="7" cy="7" r="5.5"
+                      fill="none"
+                      stroke={otherActive ? 'rgba(100, 160, 255, 0.8)' : 'rgba(255, 255, 255, 0.35)'}
+                      strokeWidth="1.5"
+                    />
+                    {otherActive && (
+                      <circle cx="7" cy="7" r="3" fill="rgba(100, 160, 255, 0.8)" />
+                    )}
+                  </svg>
+                </span>
+                <div className="flex-1 min-w-0 leading-5">
+                  {otherActive ? (
+                    <input
+                      ref={otherInputRef}
+                      type="text"
+                      value={otherText}
+                      onChange={(e) => setOtherText(e.target.value)}
+                      onClick={(e) => e.stopPropagation()}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && otherText.trim()) {
+                          e.preventDefault();
+                          handleSubmit();
+                        }
+                      }}
+                      placeholder="Type something"
+                      className="w-full bg-transparent text-sm outline-none"
+                      style={{ color: 'var(--term-text)' }}
+                    />
+                  ) : (
+                    <span className="text-sm" style={{ color: 'var(--term-text-dim)' }}>
+                      Type something
+                    </span>
+                  )}
                 </div>
-                {opt.description && (
-                  <div className="text-xs mt-0.5" style={{ color: 'var(--term-text-dim)' }}>
-                    {opt.description}
-                  </div>
-                )}
-              </div>
-            </button>
-          );
-        })}
-      </div>
+              </button>
+            </div>
+          </div>
+        );
+      })}
 
-      {/* Submit button for multiSelect */}
-      {multiSelect && (
-        <div
-          className="px-3 py-2"
-          style={{ borderTop: '1px solid var(--term-human-needed-border)' }}
+      {canSubmit && (
+        <button
+          onClick={handleSubmit}
+          className="mt-2 ml-0.5 rounded-md px-3 py-1 text-xs font-medium transition-all"
+          style={{
+            border: '1px solid rgba(255, 255, 255, 0.15)',
+            backgroundColor: 'transparent',
+            color: 'var(--term-text)',
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.border = '1px solid rgba(255, 255, 255, 0.3)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.border = '1px solid rgba(255, 255, 255, 0.15)';
+          }}
         >
-          <button
-            onClick={handleSubmitMulti}
-            disabled={selected.size === 0}
-            className="rounded px-3 py-1 text-xs font-medium transition-colors"
-            style={{
-              backgroundColor:
-                selected.size > 0
-                  ? 'var(--term-human-needed-border)'
-                  : 'color-mix(in srgb, var(--term-human-needed-border) 30%, transparent)',
-              color: selected.size > 0 ? 'var(--term-bg)' : 'var(--term-text-dim)',
-              cursor: selected.size > 0 ? 'pointer' : 'default',
-            }}
-          >
-            Submit ({selected.size} selected)
-          </button>
-        </div>
+          Submit ↵
+        </button>
       )}
-
-      {/* Hint: user can also type in the input below */}
-      <div
-        className="px-3 py-1.5 text-xs"
-        style={{
-          color: 'var(--term-text-dim)',
-          borderTop: '1px solid color-mix(in srgb, var(--term-human-needed-border) 40%, transparent)',
-          opacity: 0.6,
-        }}
-      >
-        Or type a custom response below
-      </div>
     </div>
   );
 }
