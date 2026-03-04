@@ -5,28 +5,31 @@ interface DoneListProps {
   doneList: WeftNode[];
   isOpen: boolean;
   onToggle: () => void;
+  hideToggleButton?: boolean;
 }
 
-export function DoneList({ doneList, isOpen, onToggle }: DoneListProps) {
+export function DoneList({ doneList, isOpen, onToggle, hideToggleButton = false }: DoneListProps) {
   return (
     <>
       {/* Toggle button — always visible */}
-      <button
-        onClick={onToggle}
-        className="absolute top-4 right-40 z-20 flex items-center gap-1.5 rounded-md bg-zinc-800/80 px-3 py-1.5 text-xs text-zinc-300 backdrop-blur hover:bg-zinc-700/80 transition-colors"
-        title={isOpen ? 'Hide done list' : 'Show done list'}
-      >
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-          <path
-            d="M3 7.5l2.5 2.5L11 4"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-        Done ({doneList.length})
-      </button>
+      {!hideToggleButton && (
+        <button
+          onClick={onToggle}
+          className="absolute top-4 right-40 z-20 flex items-center gap-1.5 rounded-md bg-zinc-800/80 px-3 py-1.5 text-xs text-zinc-300 backdrop-blur hover:bg-zinc-700/80 transition-colors"
+          title={isOpen ? 'Hide done list' : 'Show done list'}
+        >
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <path
+              d="M3 7.5l2.5 2.5L11 4"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+          Done ({doneList.length})
+        </button>
+      )}
 
       {/* Sidebar panel */}
       {isOpen && (

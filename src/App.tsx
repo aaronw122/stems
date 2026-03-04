@@ -228,14 +228,31 @@ export default function App() {
       <div ref={canvasContainerRef} className="relative flex-1">
         <FlowCanvas send={send} onSpawn={handleSpawn} />
 
-        {/* Top-right status and settings */}
-        <div className="absolute top-4 right-4 flex items-center gap-2">
-          <div className="flex items-center gap-2 rounded-md bg-zinc-800/80 px-3 py-1.5 text-xs backdrop-blur">
+        {/* Top-right status and quick actions */}
+        <div className="absolute top-4 right-4 z-20 flex items-center gap-2">
+          <div className="flex h-8 items-center gap-2 rounded-md bg-zinc-800/80 px-3 text-xs backdrop-blur">
             <div
               className={`h-2 w-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`}
             />
             {isConnected ? 'Connected' : 'Disconnected'}
           </div>
+
+          <button
+            onClick={() => setDoneListOpen((prev) => !prev)}
+            className="flex h-8 items-center gap-1.5 rounded-md bg-zinc-800/80 px-3 text-xs text-zinc-300 backdrop-blur transition-colors hover:bg-zinc-700/80"
+            title={doneListOpen ? 'Hide done list' : 'Show done list'}
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <path
+                d="M3 7.5l2.5 2.5L11 4"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+            Done ({doneList.length})
+          </button>
 
           <div ref={settingsMenuRef} className="relative">
             <button
@@ -310,6 +327,7 @@ export default function App() {
           doneList={doneList}
           isOpen={doneListOpen}
           onToggle={() => setDoneListOpen((prev) => !prev)}
+          hideToggleButton
         />
 
       </div>
