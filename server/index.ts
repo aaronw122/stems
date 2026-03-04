@@ -29,7 +29,7 @@ import {
   removePhantomNode,
   getPhantomNode,
 } from './state.ts';
-import { spawnSession, hasSession, killSession, killAllSessions, sendInput, isSessionBusy, dequeueInput, getSlashCommands, generateFeatureTitle } from './session.ts';
+import { spawnSession, hasSession, killSession, killAllSessions, sendInput, isSessionBusy, dequeueInput, getSlashCommands, generateFeatureTitle, getPendingInputs } from './session.ts';
 import { autoMoveIfComplete } from './completion.ts';
 import { getAllActiveFiles, clearNode as clearOverlapNode } from './overlap-tracker.ts';
 import { stopPolling as stopPRPolling, stopTracking as stopPRTracking } from './pr-tracker.ts';
@@ -235,6 +235,9 @@ async function handleMessage(ws: ServerWebSocket<unknown>, raw: string): Promise
       const node = getNode(msg.nodeId);
       if (!node) break;
 
+      // Save pending inputs before killing — killSession clears the client queue
+      const pendingInputs = getPendingInputs(msg.nodeId);
+
       await killSession(msg.nodeId);
       clearOverlapNode(msg.nodeId);
 
@@ -254,6 +257,33 @@ async function handleMessage(ws: ServerWebSocket<unknown>, raw: string): Promise
       }
 
       broadcastTerminal(msg.nodeId, [{ type: 'system', text: 'Session stopped by user (^C)' }]);
+
+      // Auto-send queued messages for feature nodes (deferred spawn creates a new session)
+      if (node.type === 'feature' && pendingInputs.length > 0) {
+        const combinedText = pendingInputs.map((m) => m.text).join('\n\n');
+        const allImages = pendingInputs.flatMap((m) => m.images ?? []);
+        const repoPath = findRepoPath(msg.nodeId);
+
+        if (repoPath) {
+          // Show queued messages in terminal
+          for (const pending of pendingInputs) {
+            broadcastTerminal(msg.nodeId, [{ type: 'user_message', text: pending.text }]);
+          }
+
+          const promptParts: string[] = [];
+          const overlapCtx = buildOverlapContext();
+          if (overlapCtx) promptParts.push(overlapCtx);
+          const appendSystemPrompt = promptParts.length > 0 ? promptParts.join('\n\n') : undefined;
+
+          await spawnSession(
+            msg.nodeId,
+            repoPath,
+            combinedText,
+            appendSystemPrompt,
+            allImages.length > 0 ? allImages : undefined,
+          );
+        }
+      }
       break;
     }
 

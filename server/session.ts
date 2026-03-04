@@ -500,6 +500,14 @@ export function getSlashCommands(nodeId: string): SlashCommand[] | null {
   return session?.slashCommands ?? null;
 }
 
+// ── Get pending inputs (without removing them) ─────────────────────
+
+export function getPendingInputs(nodeId: string): QueuedMessage[] {
+  const session = sessions.get(nodeId);
+  if (!session) return [];
+  return [...session.pendingInputs];
+}
+
 // ── Kill a session ──────────────────────────────────────────────────
 
 export async function killSession(nodeId: string): Promise<void> {
@@ -507,6 +515,11 @@ export async function killSession(nodeId: string): Promise<void> {
   if (!session) return;
 
   console.log(`[session:${nodeId}] killing session`);
+
+  // Clear client-side queue before destroying session
+  if (session.pendingInputs.length > 0) {
+    broadcast({ type: 'queue_update', nodeId, messages: [] });
+  }
 
   if (session.abortController) {
     try {
