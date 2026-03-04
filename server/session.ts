@@ -138,13 +138,13 @@ export async function spawnSession(
     env: getCleanEnv(),
   };
 
-  if (appendSystemPrompt) {
-    baseOptions.systemPrompt = {
-      type: 'preset',
-      preset: 'claude_code',
-      append: appendSystemPrompt,
-    };
-  }
+  // Always use the claude_code preset so sessions load the full system
+  // scaffolding (global CLAUDE.md, project CLAUDE.md, tools, etc.).
+  // Without this, the SDK uses a minimal default and context is ~half
+  // what the real CLI loads.
+  baseOptions.systemPrompt = appendSystemPrompt
+    ? { type: 'preset', preset: 'claude_code', append: appendSystemPrompt }
+    : { type: 'preset', preset: 'claude_code' };
 
   const processor = createMessageProcessor(nodeId);
 

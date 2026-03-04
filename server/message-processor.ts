@@ -362,10 +362,15 @@ export function createMessageProcessor(nodeId: string) {
       return [];
     }
 
-    // Track latest per-turn input tokens for context % calculation
+    // Track latest per-turn input tokens for context % calculation.
+    // input_tokens only counts non-cached tokens; the full context size
+    // includes cache_read and cache_creation tokens too.
     const turnUsage = msg.message?.usage;
-    if (turnUsage?.input_tokens) {
-      lastTurnInputTokens = turnUsage.input_tokens;
+    if (turnUsage) {
+      lastTurnInputTokens =
+        (turnUsage.input_tokens ?? 0) +
+        (turnUsage.cache_read_input_tokens ?? 0) +
+        (turnUsage.cache_creation_input_tokens ?? 0);
     }
 
     const messages: TerminalMessage[] = [];
@@ -524,13 +529,14 @@ export function createMessageProcessor(nodeId: string) {
       const modelUsageEntry: ModelUsage | undefined = Object.values(msg.modelUsage)[0];
       const contextWindow = modelUsageEntry?.contextWindow ?? null;
 
-      // Context % = how much of the window remains.
-      // Use the latest per-turn input_tokens (the actual conversation size sent
-      // to the API on the most recent turn), NOT msg.usage which is cumulative
-      // across all turns and would massively overestimate usage.
+      // Context % remaining — matches the CLI formula (RA1 in cli.js):
+      //   used = Math.round(totalInput / contextWindow * 100)
+      //   remaining = 100 - used
+      // where totalInput = input_tokens + cache_creation + cache_read
       let contextPercent: number | null = null;
       if (contextWindow && contextWindow > 0 && lastTurnInputTokens > 0) {
-        contextPercent = Math.max(0, Math.min(100, ((contextWindow - lastTurnInputTokens) / contextWindow) * 100));
+        const usedPercent = Math.min(100, Math.max(0, Math.round(lastTurnInputTokens / contextWindow * 100)));
+        contextPercent = 100 - usedPercent;
       }
 
       const updated = updateNode(nodeId, {
