@@ -1,8 +1,8 @@
 # stems
 
-i built this because i was sick of looking at too many terminals. needed a better way to manage my agents. 
+i built this because i was sick of looking at too many terminals. 
 
-this is a way to visualize and manage Claude Code agent sessions with minimal cognitive load. repos at the root, features branching off, subtasks at the leaves. each node is a real Claude CLI session you can look into, spawn children from, and track to completion.
+stems is a tool you run locally to manage claude code sessions. repos at the root, features branching off, subtasks at the leaves. each node is a real Claude CLI session you can look into, spawn children from, and track to completion. 
 
 **stack:** Bun + Vite + React + TypeScript + xyflow + Tailwind + Zustand
 
@@ -75,7 +75,7 @@ in production, the bun server serves everything at `http://localhost:7482`. in d
 
 ## usage
 
-1. click **+ add repo** in the toolbar to add a repo node — picks a local git repository via native folder picker
+1. click **+ add repo** in the toolbar to add a repo node — picks a local git repository via native folder picker (multiple repos can run at once)
 2. click the **+ feature** button on a repo card — type a prompt to start a Claude session
 3. feature sessions can spawn **subtask nodes** automatically when Claude uses subagents
 4. click any node to peek into its terminal output, send follow-up messages, or stop the session
