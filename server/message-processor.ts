@@ -156,6 +156,11 @@ export function createMessageProcessor(nodeId: string) {
   const subagentAccumulatedStats = new Map<string, { toolUseCount: number; totalTokens: number }>();
   const PHANTOM_REMOVAL_DELAY_MS = 2_000;
 
+  // Track the latest per-turn input_tokens from assistant messages.
+  // This represents the current conversation size (context fill level),
+  // NOT the cumulative total across all turns.
+  let lastTurnInputTokens = 0;
+
   function createSubagentNode(taskId: string, toolUseId: string | undefined, description: string): void {
     const phantomId = crypto.randomUUID();
     activeSubagents.set(taskId, phantomId);
@@ -357,6 +362,12 @@ export function createMessageProcessor(nodeId: string) {
       return [];
     }
 
+    // Track latest per-turn input tokens for context % calculation
+    const turnUsage = msg.message?.usage;
+    if (turnUsage?.input_tokens) {
+      lastTurnInputTokens = turnUsage.input_tokens;
+    }
+
     const messages: TerminalMessage[] = [];
     const content = msg.message?.content;
 
@@ -514,11 +525,12 @@ export function createMessageProcessor(nodeId: string) {
       const contextWindow = modelUsageEntry?.contextWindow ?? null;
 
       // Context % = how much of the window remains.
-      // input_tokens on the latest result reflects the full conversation size.
+      // Use the latest per-turn input_tokens (the actual conversation size sent
+      // to the API on the most recent turn), NOT msg.usage which is cumulative
+      // across all turns and would massively overestimate usage.
       let contextPercent: number | null = null;
-      if (contextWindow && contextWindow > 0) {
-        const used = msg.usage.input_tokens + msg.usage.output_tokens;
-        contextPercent = Math.max(0, Math.min(100, ((contextWindow - used) / contextWindow) * 100));
+      if (contextWindow && contextWindow > 0 && lastTurnInputTokens > 0) {
+        contextPercent = Math.max(0, Math.min(100, ((contextWindow - lastTurnInputTokens) / contextWindow) * 100));
       }
 
       const updated = updateNode(nodeId, {
