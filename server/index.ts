@@ -24,6 +24,7 @@ import {
   clearTerminalSubscriptions,
   removeFromDoneList,
   hydrateState,
+  hydrateTerminalBuffers,
   flushSave,
   removePhantomNode,
   getPhantomNode,
@@ -33,7 +34,7 @@ import { autoMoveIfComplete } from './completion.ts';
 import { getAllActiveFiles, clearNode as clearOverlapNode } from './overlap-tracker.ts';
 import { stopPolling as stopPRPolling, stopTracking as stopPRTracking } from './pr-tracker.ts';
 import { summarizeContext } from './context-summary.ts';
-import { loadWorkspace } from './persistence.ts';
+import { loadWorkspace, loadTerminals } from './persistence.ts';
 import { getCustomSkills } from './skill-scanner.ts';
 import { join, basename, resolve } from 'node:path';
 import { realpath } from 'node:fs/promises';
@@ -352,7 +353,7 @@ async function handleMessage(ws: ServerWebSocket<unknown>, raw: string): Promise
             ? `${spawnImages.map((img) => `[${img.name}]`).join(' ')} ${payload.text}`
             : payload.text;
           broadcastTerminal(nodeId, [{ type: 'user_message', text: spawnDisplayText }]);
-          await spawnSession(nodeId, repoPath, payload.text, appendSystemPrompt, spawnImages);
+          await spawnSession(nodeId, repoPath, payload.text, appendSystemPrompt, spawnImages, node?.sessionId ?? undefined);
           break;
         }
       }
@@ -418,6 +419,13 @@ if (savedWorkspace) {
   console.log(`[startup] Restored workspace: ${savedWorkspace.nodes.length - phantomIds.length} node(s), ${savedWorkspace.doneList.length} done`);
 } else {
   console.log('[startup] No saved workspace found, starting fresh');
+}
+
+// Restore terminal buffers (separate from workspace to keep files independent)
+const savedTerminals = await loadTerminals();
+if (savedTerminals) {
+  hydrateTerminalBuffers(savedTerminals);
+  console.log(`[startup] Restored terminal buffers for ${savedTerminals.size} node(s)`);
 }
 
 // ── Server ───────────────────────────────────────────────────────────

@@ -126,6 +126,7 @@ export async function spawnSession(
   prompt: string,
   appendSystemPrompt?: string,
   images?: ImageAttachment[],
+  resumeSessionId?: string,
 ): Promise<void> {
   // Build shared options (reused across turns)
   const baseOptions: Omit<Options, 'abortController' | 'resume'> = {
@@ -150,7 +151,7 @@ export async function spawnSession(
 
   const session: Session = {
     nodeId,
-    sessionId: null,
+    sessionId: resumeSessionId ?? null,
     repoPath,
     baseOptions,
     processor,
