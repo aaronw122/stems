@@ -49,7 +49,6 @@ interface TerminalPeekProps {
   onSendInput: (text: string) => void;
   onStopSession: () => void;
   onDequeue: (action: 'pop_last' | 'clear_all') => void;
-  onOpenMarkdown?: (filePath: string, cwd: string) => void;
 }
 
 const EMPTY_MESSAGES: TerminalMessage[] = [];
@@ -67,7 +66,7 @@ const EDGE_CURSORS: Record<ResizeEdge, string> = {
   sw: 'nesw-resize',
 };
 
-export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendInput, onStopSession, onDequeue, onOpenMarkdown }: TerminalPeekProps) {
+export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendInput, onStopSession, onDequeue }: TerminalPeekProps) {
   const [input, setInput] = useState('');
   const [autoScroll, setAutoScroll] = useState(true);
   const [fontSize, setFontSize] = useState(12);
@@ -162,14 +161,16 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
     scrollTimeoutRef.current = setTimeout(() => setIsScrolling(false), 1000);
   }, []);
 
-  // Event delegation for .md-file-link clicks (from dangerouslySetInnerHTML content)
+  // Event delegation for .md-file-link clicks — opens rendered markdown in new window
   const handleTerminalClick = useCallback((e: React.MouseEvent) => {
     const target = e.target as HTMLElement;
     const link = target.closest('.md-file-link') as HTMLElement | null;
     if (link?.dataset.mdPath) {
-      onOpenMarkdown?.(link.dataset.mdPath, bannerData?.cwd ?? '');
+      const params = new URLSearchParams({ path: link.dataset.mdPath });
+      if (bannerData?.cwd) params.set('cwd', bannerData.cwd);
+      window.open(`/api/view-md?${params}`, '_blank', 'width=900,height=700,scrollbars=yes');
     }
-  }, [onOpenMarkdown, bannerData?.cwd]);
+  }, [bannerData?.cwd]);
 
   const handleSubmit = useCallback(() => {
     const trimmed = input.trim();
