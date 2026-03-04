@@ -7,17 +7,21 @@ import { DoneList } from './components/panels/DoneList.tsx';
 import { useWebSocket } from './hooks/useWebSocket.ts';
 import { useGraph } from './hooks/useGraph.ts';
 import type { ImageAttachment } from '../shared/types.ts';
+import { useTheme } from './themes/ThemeProvider.tsx';
 
 export default function App() {
   const processMessage = useGraph((s) => s.processMessage);
   const nodes = useGraph((s) => s.nodes);
   const doneList = useGraph((s) => s.doneList);
   const { send, isConnected } = useWebSocket(processMessage);
+  const { openThemePicker } = useTheme();
 
   const [doneListOpen, setDoneListOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   // Ref to the canvas container for floating terminal positioning
   const canvasContainerRef = useRef<HTMLDivElement>(null);
+  const settingsMenuRef = useRef<HTMLDivElement>(null);
 
   // Track the element that had focus before terminal opened, for focus restoration
   const previousFocusRef = useRef<HTMLElement | null>(null);
@@ -93,6 +97,8 @@ export default function App() {
         // via a capture-phase listener, so it won't reach here during drag/resize.
         if (promptEditor.isOpen) {
           setPromptEditor((prev) => ({ ...prev, isOpen: false }));
+        } else if (settingsOpen) {
+          setSettingsOpen(false);
         } else if (selectedNodeId) {
           useGraph.getState().setSelectedNode(null);
         } else if (doneListOpen) {
@@ -108,7 +114,19 @@ export default function App() {
     }
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [promptEditor.isOpen, selectedNodeId, doneListOpen, handleAddRepo]);
+  }, [promptEditor.isOpen, settingsOpen, selectedNodeId, doneListOpen, handleAddRepo]);
+
+  useEffect(() => {
+    if (!settingsOpen) return;
+    function handleOutsideClick(e: MouseEvent) {
+      if (!settingsMenuRef.current) return;
+      if (!settingsMenuRef.current.contains(e.target as Node)) {
+        setSettingsOpen(false);
+      }
+    }
+    window.addEventListener('mousedown', handleOutsideClick);
+    return () => window.removeEventListener('mousedown', handleOutsideClick);
+  }, [settingsOpen]);
 
   const handleSpawn = useCallback(
     (nodeId: string, spawnType: 'feature' | 'subtask') => {
@@ -192,6 +210,11 @@ export default function App() {
     [selectedNodeId, send],
   );
 
+  const handleOpenThemePicker = useCallback(() => {
+    setSettingsOpen(false);
+    openThemePicker();
+  }, [openThemePicker]);
+
   // Get the title for the selected node (only needed when terminal is shown)
   const selectedNodeTitle =
     selectedNodeId && selectedNodeType !== 'repo'
@@ -204,12 +227,56 @@ export default function App() {
       <div ref={canvasContainerRef} className="relative flex-1">
         <FlowCanvas send={send} onSpawn={handleSpawn} />
 
-        {/* Connection indicator */}
-        <div className="absolute top-4 right-4 flex items-center gap-2 rounded-md bg-zinc-800/80 px-3 py-1.5 text-xs backdrop-blur">
-          <div
-            className={`h-2 w-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`}
-          />
-          {isConnected ? 'Connected' : 'Disconnected'}
+        {/* Top-right status and settings */}
+        <div className="absolute top-4 right-4 flex items-start gap-2">
+          <div className="flex items-center gap-2 rounded-md bg-zinc-800/80 px-3 py-1.5 text-xs backdrop-blur">
+            <div
+              className={`h-2 w-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`}
+            />
+            {isConnected ? 'Connected' : 'Disconnected'}
+          </div>
+
+          <div ref={settingsMenuRef} className="relative">
+            <button
+              onClick={() => setSettingsOpen((prev) => !prev)}
+              className="rounded-md bg-zinc-800/80 p-2 text-zinc-200 backdrop-blur transition-colors hover:bg-zinc-700/80"
+              aria-label="Open settings menu"
+              aria-haspopup="menu"
+              aria-expanded={settingsOpen}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path
+                  d="M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4Z"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+                <path
+                  d="M19.4 15.2a1 1 0 0 0 .2 1.1l.1.1a1.2 1.2 0 0 1 0 1.7l-.7.7a1.2 1.2 0 0 1-1.7 0l-.1-.1a1 1 0 0 0-1.1-.2 1 1 0 0 0-.6.9v.2a1.2 1.2 0 0 1-1.2 1.2h-1a1.2 1.2 0 0 1-1.2-1.2v-.2a1 1 0 0 0-.6-.9 1 1 0 0 0-1.1.2l-.1.1a1.2 1.2 0 0 1-1.7 0l-.7-.7a1.2 1.2 0 0 1 0-1.7l.1-.1a1 1 0 0 0 .2-1.1 1 1 0 0 0-.9-.6h-.2a1.2 1.2 0 0 1-1.2-1.2v-1a1.2 1.2 0 0 1 1.2-1.2h.2a1 1 0 0 0 .9-.6 1 1 0 0 0-.2-1.1l-.1-.1a1.2 1.2 0 0 1 0-1.7l.7-.7a1.2 1.2 0 0 1 1.7 0l.1.1a1 1 0 0 0 1.1.2 1 1 0 0 0 .6-.9v-.2a1.2 1.2 0 0 1 1.2-1.2h1a1.2 1.2 0 0 1 1.2 1.2v.2a1 1 0 0 0 .6.9 1 1 0 0 0 1.1-.2l.1-.1a1.2 1.2 0 0 1 1.7 0l.7.7a1.2 1.2 0 0 1 0 1.7l-.1.1a1 1 0 0 0-.2 1.1 1 1 0 0 0 .9.6h.2a1.2 1.2 0 0 1 1.2 1.2v1a1.2 1.2 0 0 1-1.2 1.2h-.2a1 1 0 0 0-.9.6Z"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </button>
+
+            {settingsOpen && (
+              <div
+                role="menu"
+                className="absolute right-0 mt-2 w-40 rounded-md border border-zinc-700 bg-zinc-900 p-1 shadow-xl"
+              >
+                <button
+                  onClick={handleOpenThemePicker}
+                  className="w-full rounded px-2 py-1.5 text-left text-sm text-zinc-200 transition-colors hover:bg-zinc-800"
+                  role="menuitem"
+                >
+                  Change theme
+                </button>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Toolbar buttons */}

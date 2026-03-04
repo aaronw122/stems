@@ -10,11 +10,13 @@ const DEFAULT_THEME: ThemeId = 'dark';
 interface ThemeContextValue {
   themeId: ThemeId;
   setTheme: (id: ThemeId) => void;
+  openThemePicker: () => void;
 }
 
 const ThemeContext = createContext<ThemeContextValue>({
   themeId: DEFAULT_THEME,
   setTheme: () => {},
+  openThemePicker: () => {},
 });
 
 export function useTheme(): ThemeContextValue {
@@ -92,8 +94,12 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     }
   }, []);
 
+  const openThemePicker = useCallback(() => {
+    setShowPicker(true);
+  }, []);
+
   return (
-    <ThemeContext.Provider value={{ themeId, setTheme }}>
+    <ThemeContext.Provider value={{ themeId, setTheme, openThemePicker }}>
       {children}
       {showPicker && (
         <ThemePicker
