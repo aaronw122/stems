@@ -353,7 +353,7 @@ async function handleMessage(ws: ServerWebSocket<unknown>, raw: string): Promise
             ? `${spawnImages.map((img) => `[${img.name}]`).join(' ')} ${payload.text}`
             : payload.text;
           broadcastTerminal(nodeId, [{ type: 'user_message', text: spawnDisplayText }]);
-          await spawnSession(nodeId, repoPath, payload.text, appendSystemPrompt, spawnImages);
+          await spawnSession(nodeId, repoPath, payload.text, appendSystemPrompt, spawnImages, node?.sessionId ?? undefined);
           break;
         }
       }

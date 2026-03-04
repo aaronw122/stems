@@ -6,7 +6,7 @@ import type { WeftNode, WeftEdge, TerminalMessage } from '../shared/types.ts';
 
 export type PersistedNode = Pick<
   WeftNode,
-  'id' | 'type' | 'parentId' | 'title' | 'repoPath' | 'branch' | 'prompt' | 'prUrl' | 'prState' | 'costUsd' | 'tokenUsage' | 'isPhantomSubagent'
+  'id' | 'type' | 'parentId' | 'title' | 'repoPath' | 'branch' | 'prompt' | 'prUrl' | 'prState' | 'costUsd' | 'tokenUsage' | 'isPhantomSubagent' | 'sessionId'
 >;
 
 export interface WorkspaceFile {
@@ -41,6 +41,7 @@ export function toPersistedNode(node: WeftNode): PersistedNode {
     costUsd: node.costUsd,
     tokenUsage: { input: node.tokenUsage.input, output: node.tokenUsage.output },
     isPhantomSubagent: node.isPhantomSubagent,
+    sessionId: node.sessionId,
   };
 }
 
@@ -61,7 +62,7 @@ export function toWeftNode(persisted: PersistedNode): WeftNode {
     // Reset volatile fields to safe defaults
     nodeState: 'idle',
     displayStage: 'planning',
-    sessionId: null,
+    sessionId: persisted.sessionId ?? null,
     needsHuman: false,
     humanNeededType: null,
     humanNeededPayload: null,
