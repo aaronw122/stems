@@ -3,6 +3,7 @@ import { FlowCanvas } from './components/FlowCanvas.tsx';
 import { PromptEditor } from './components/panels/PromptEditor.tsx';
 import { TerminalPeek } from './components/panels/TerminalPeek.tsx';
 import { DoneList } from './components/panels/DoneList.tsx';
+import { Settings } from 'lucide-react';
 
 import { useWebSocket } from './hooks/useWebSocket.ts';
 import { useGraph } from './hooks/useGraph.ts';
@@ -228,7 +229,7 @@ export default function App() {
         <FlowCanvas send={send} onSpawn={handleSpawn} />
 
         {/* Top-right status and settings */}
-        <div className="absolute top-4 right-4 flex items-start gap-2">
+        <div className="absolute top-4 right-4 flex items-center gap-2">
           <div className="flex items-center gap-2 rounded-md bg-zinc-800/80 px-3 py-1.5 text-xs backdrop-blur">
             <div
               className={`h-2 w-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`}
@@ -239,27 +240,12 @@ export default function App() {
           <div ref={settingsMenuRef} className="relative">
             <button
               onClick={() => setSettingsOpen((prev) => !prev)}
-              className="rounded-md bg-zinc-800/80 p-2 text-zinc-200 backdrop-blur transition-colors hover:bg-zinc-700/80"
+              className="flex h-8 w-8 items-center justify-center rounded-md bg-zinc-800/80 text-zinc-200 backdrop-blur transition-colors hover:bg-zinc-700/80"
               aria-label="Open settings menu"
               aria-haspopup="menu"
               aria-expanded={settingsOpen}
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path
-                  d="M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4Z"
-                  stroke="currentColor"
-                  strokeWidth="1.6"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-                <path
-                  d="M19.4 15.2a1 1 0 0 0 .2 1.1l.1.1a1.2 1.2 0 0 1 0 1.7l-.7.7a1.2 1.2 0 0 1-1.7 0l-.1-.1a1 1 0 0 0-1.1-.2 1 1 0 0 0-.6.9v.2a1.2 1.2 0 0 1-1.2 1.2h-1a1.2 1.2 0 0 1-1.2-1.2v-.2a1 1 0 0 0-.6-.9 1 1 0 0 0-1.1.2l-.1.1a1.2 1.2 0 0 1-1.7 0l-.7-.7a1.2 1.2 0 0 1 0-1.7l.1-.1a1 1 0 0 0 .2-1.1 1 1 0 0 0-.9-.6h-.2a1.2 1.2 0 0 1-1.2-1.2v-1a1.2 1.2 0 0 1 1.2-1.2h.2a1 1 0 0 0 .9-.6 1 1 0 0 0-.2-1.1l-.1-.1a1.2 1.2 0 0 1 0-1.7l.7-.7a1.2 1.2 0 0 1 1.7 0l.1.1a1 1 0 0 0 1.1.2 1 1 0 0 0 .6-.9v-.2a1.2 1.2 0 0 1 1.2-1.2h1a1.2 1.2 0 0 1 1.2 1.2v.2a1 1 0 0 0 .6.9 1 1 0 0 0 1.1-.2l.1-.1a1.2 1.2 0 0 1 1.7 0l.7.7a1.2 1.2 0 0 1 0 1.7l-.1.1a1 1 0 0 0-.2 1.1 1 1 0 0 0 .9.6h.2a1.2 1.2 0 0 1 1.2 1.2v1a1.2 1.2 0 0 1-1.2 1.2h-.2a1 1 0 0 0-.9.6Z"
-                  stroke="currentColor"
-                  strokeWidth="1.6"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
+              <Settings className="h-4 w-4" strokeWidth={1.8} aria-hidden="true" />
             </button>
 
             {settingsOpen && (

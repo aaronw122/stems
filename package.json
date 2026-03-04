@@ -26,6 +26,7 @@
     "@xyflow/react": "^12.10.1",
     "ansi-to-html": "^0.7.2",
     "dagre": "^0.8.5",
+    "lucide-react": "^0.577.0",
     "marked": "^17.0.3",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
