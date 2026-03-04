@@ -39,6 +39,25 @@ export type NodeType = 'repo' | 'feature' | 'subtask' | 'phantom';
 
 export type HumanNeededType = 'question' | 'permission' | 'error' | 'idle' | null;
 
+// ── AskUserQuestion payload (from Claude CLI stream-json) ───────────
+
+export interface AskUserQuestionOption {
+  label: string;
+  description?: string;
+  markdown?: string;
+}
+
+export interface AskUserQuestionItem {
+  question: string;
+  header?: string;
+  options: AskUserQuestionOption[];
+  multiSelect: boolean;
+}
+
+export interface AskUserQuestionPayload {
+  questions: AskUserQuestionItem[];
+}
+
 // ── Core data models ─────────────────────────────────────────────────
 
 export interface WeftNode {

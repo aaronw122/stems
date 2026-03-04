@@ -397,9 +397,19 @@ export function createMessageProcessor(nodeId: string) {
 
           // Precedence rule: AskUserQuestion emits human_needed, not tool_use
           if (name === 'AskUserQuestion') {
-            const questionText = input && typeof input === 'object' && 'question' in (input as Record<string, unknown>)
-              ? String((input as Record<string, unknown>).question)
-              : name;
+            // Extract question text — payload is { questions: [{ question, ... }] }
+            let questionText = name;
+            if (input && typeof input === 'object') {
+              const inp = input as Record<string, unknown>;
+              if (Array.isArray(inp.questions) && inp.questions.length > 0) {
+                const first = inp.questions[0] as Record<string, unknown> | undefined;
+                if (first && typeof first.question === 'string') {
+                  questionText = first.question;
+                }
+              } else if ('question' in inp) {
+                questionText = String(inp.question);
+              }
+            }
             messages.push({ type: 'human_needed', text: questionText });
             setHumanNeeded('question', input);
           } else {

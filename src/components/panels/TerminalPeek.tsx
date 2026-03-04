@@ -3,10 +3,11 @@ import { useTerminal } from '../../hooks/useTerminal.ts';
 import { useFloatingWindow } from '../../hooks/useFloatingWindow.ts';
 import { useGraph } from '../../hooks/useGraph.ts';
 import { useAutocomplete } from '../../hooks/useAutocomplete.ts';
-import type { TerminalMessage, WeftNode, ImageAttachment, QueuedMessage } from '../../../shared/types.ts';
+import type { TerminalMessage, WeftNode, ImageAttachment, QueuedMessage, AskUserQuestionPayload } from '../../../shared/types.ts';
 import { TerminalMessageRenderer } from './TerminalMessageRenderer.tsx';
 import { AutocompleteDropdown } from './AutocompleteDropdown.tsx';
 import { SubagentSummary } from './SubagentSummary.tsx';
+import { QuestionOptions } from './QuestionOptions.tsx';
 
 // ── Thinking indicator ──────────────────────────────────────────────
 
@@ -47,6 +48,7 @@ interface TerminalPeekProps {
   containerRef: React.RefObject<HTMLElement | null>;
   onClose: () => void;
   onSendInput: (text: string, images?: ImageAttachment[]) => void;
+  onAnswerQuestion: (answer: string) => void;
   onStopSession: () => void;
   onDequeue: (action: 'pop_last' | 'clear_all') => void;
 }
@@ -66,7 +68,7 @@ const EDGE_CURSORS: Record<ResizeEdge, string> = {
   sw: 'nesw-resize',
 };
 
-export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendInput, onStopSession, onDequeue }: TerminalPeekProps) {
+export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendInput, onAnswerQuestion, onStopSession, onDequeue }: TerminalPeekProps) {
   const [input, setInput] = useState('');
   const [images, setImages] = useState<ImageAttachment[]>([]);
   const [selectedChipIndex, setSelectedChipIndex] = useState<number | null>(null);
@@ -181,6 +183,12 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
   });
   const nodeState = nodeData?.nodeState ?? 'idle';
   const contextPercent = nodeData?.contextPercent ?? null;
+
+  // Parse structured question options from humanNeededPayload
+  const questionPayload: AskUserQuestionPayload | null =
+    nodeData?.humanNeededType === 'question' && nodeData.humanNeededPayload
+      ? parseQuestionPayload(nodeData.humanNeededPayload)
+      : null;
 
   // Find the session_banner message (may not be at index 0 — user prompt can arrive first)
   const bannerMsg = messages.find(m => m.type === 'session_banner');
@@ -646,6 +654,14 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
         </button>
       )}
 
+      {/* Structured question options — shown when Claude asks AskUserQuestion */}
+      {questionPayload && (
+        <QuestionOptions
+          payload={questionPayload}
+          onAnswer={onAnswerQuestion}
+        />
+      )}
+
       {/* Input area — terminal-style with chevron + image chips */}
       <div
         className="flex flex-col px-4 py-2"
@@ -799,4 +815,20 @@ export function TerminalPeek({ nodeId, nodeTitle, containerRef, onClose, onSendI
       )}
     </div>
   );
+}
+
+// ── Helpers ─────────────────────────────────────────────────────────
+
+/** Safely parse the humanNeededPayload into a typed AskUserQuestion structure */
+function parseQuestionPayload(raw: unknown): AskUserQuestionPayload | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const obj = raw as Record<string, unknown>;
+
+  // Payload shape: { questions: [{ question, header, options, multiSelect }] }
+  if (!Array.isArray(obj.questions) || obj.questions.length === 0) return null;
+
+  const first = obj.questions[0] as Record<string, unknown> | undefined;
+  if (!first || !Array.isArray(first.options) || first.options.length === 0) return null;
+
+  return raw as AskUserQuestionPayload;
 }

@@ -169,6 +169,19 @@ export default function App() {
     [selectedNodeId, send],
   );
 
+  const handleQuestionAnswer = useCallback(
+    (answer: string) => {
+      if (selectedNodeId) {
+        send({
+          type: 'send_input',
+          nodeId: selectedNodeId,
+          payload: { kind: 'question_answer', answer },
+        });
+      }
+    },
+    [selectedNodeId, send],
+  );
+
   const handleDequeue = useCallback(
     (action: 'pop_last' | 'clear_all') => {
       if (selectedNodeId) {
@@ -232,6 +245,7 @@ export default function App() {
             containerRef={canvasContainerRef}
             onClose={handleTerminalClose}
             onSendInput={handleTerminalInput}
+            onAnswerQuestion={handleQuestionAnswer}
             onStopSession={handleStopSession}
             onDequeue={handleDequeue}
           />
