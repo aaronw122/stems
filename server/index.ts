@@ -1,5 +1,5 @@
 import type { ServerWebSocket } from 'bun';
-import { marked } from 'marked';
+
 import type { ClientMessage, WeftNode, WeftEdge } from '../shared/types.ts';
 import {
   addNode,
@@ -551,15 +551,12 @@ const server = Bun.serve({
       }
     }
 
-    // Render a markdown file as a full HTML page (opens in new window)
+    // Editable markdown file (opens in new window as a simple text editor)
     if (url.pathname === '/api/view-md') {
       const filePath = url.searchParams.get('path');
       const cwd = url.searchParams.get('cwd');
-      if (!filePath) {
-        return new Response('Missing "path" query parameter', { status: 400 });
-      }
-      if (!filePath.endsWith('.md')) {
-        return new Response('Only .md files are supported', { status: 400 });
+      if (!filePath || !filePath.endsWith('.md')) {
+        return new Response('Missing or invalid path', { status: 400 });
       }
       try {
         const candidates: string[] = [];
@@ -586,7 +583,6 @@ const server = Bun.serve({
           return new Response('File not found', { status: 404 });
         }
 
-        const rendered = await marked(content);
         const fileName = resolvedPath.split('/').pop() ?? resolvedPath;
         const html = `<!DOCTYPE html>
 <html lang="en">
@@ -597,44 +593,119 @@ const server = Bun.serve({
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
-    font-family: system-ui, -apple-system, sans-serif;
-    font-size: 15px;
-    line-height: 1.7;
+    font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
+    font-size: 13px;
+    line-height: 1.6;
     color: #e4e4e7;
     background: #18181b;
-    padding: 2rem 3rem;
-    max-width: 860px;
-    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
   }
-  h1, h2, h3, h4, h5, h6 { font-weight: 600; color: #fafafa; margin: 1.5em 0 0.5em; line-height: 1.3; }
-  h1 { font-size: 1.75em; } h2 { font-size: 1.4em; } h3 { font-size: 1.2em; }
-  h4 { font-size: 1.05em; } h5 { font-size: 0.95em; } h6 { font-size: 0.85em; color: #a1a1aa; }
-  h1:first-child, h2:first-child, h3:first-child { margin-top: 0; }
-  p { margin: 0.75em 0; }
-  a { color: #58a6ff; text-decoration: none; } a:hover { text-decoration: underline; }
-  code { background: rgba(255,255,255,0.08); padding: 0.15em 0.4em; border-radius: 4px; font-size: 0.9em; }
-  pre { background: rgba(255,255,255,0.06); padding: 12px 16px; border-radius: 6px; overflow-x: auto; margin: 1em 0; }
-  pre code { background: none; padding: 0; border-radius: 0; font-size: 0.85em; }
-  ul, ol { padding-left: 1.5em; margin: 0.75em 0; }
-  li { margin: 0.25em 0; }
-  blockquote { border-left: 3px solid rgba(255,255,255,0.2); padding-left: 1em; margin: 1em 0; color: #a1a1aa; }
-  hr { border: none; border-top: 1px solid rgba(255,255,255,0.1); margin: 1.5em 0; }
-  table { border-collapse: collapse; width: 100%; margin: 1em 0; }
-  th, td { border: 1px solid rgba(255,255,255,0.12); padding: 8px 12px; text-align: left; }
-  th { font-weight: 600; background: rgba(255,255,255,0.04); }
-  img { max-width: 100%; border-radius: 4px; }
-  .file-path { font-size: 0.8em; color: #71717a; margin-bottom: 1.5rem; word-break: break-all; }
+  .header {
+    padding: 8px 16px;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    font-size: 11px;
+    color: #71717a;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-shrink: 0;
+  }
+  .header .path { word-break: break-all; }
+  .header .status { color: #22c55e; opacity: 0; transition: opacity 300ms; }
+  .header .status.visible { opacity: 1; }
+  textarea {
+    flex: 1;
+    width: 100%;
+    padding: 16px 20px;
+    background: transparent;
+    color: #e4e4e7;
+    border: none;
+    outline: none;
+    resize: none;
+    font-family: inherit;
+    font-size: inherit;
+    line-height: inherit;
+    tab-size: 2;
+  }
 </style>
 </head>
 <body>
-<div class="file-path">${resolvedPath}</div>
-${rendered}
+<div class="header">
+  <span class="path">${resolvedPath}</span>
+  <span class="status" id="status">Saved</span>
+</div>
+<textarea id="editor" spellcheck="false">${content.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</textarea>
+<script>
+  const editor = document.getElementById('editor');
+  const status = document.getElementById('status');
+  const filePath = ${JSON.stringify(resolvedPath)};
+  let saveTimer = null;
+  let dirty = false;
+
+  function save() {
+    if (!dirty) return;
+    dirty = false;
+    fetch('/api/save-md', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: filePath, content: editor.value }),
+    }).then(res => {
+      if (res.ok) {
+        status.classList.add('visible');
+        setTimeout(() => status.classList.remove('visible'), 1500);
+      }
+    });
+  }
+
+  editor.addEventListener('input', () => {
+    dirty = true;
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(save, 1000);
+  });
+
+  editor.addEventListener('blur', save);
+
+  document.addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+      e.preventDefault();
+      save();
+    }
+  });
+</script>
 </body>
 </html>`;
         return new Response(html, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
       } catch (err) {
         console.error('[view-md] error:', err);
         return new Response(`Error: ${String(err)}`, { status: 500 });
+      }
+    }
+
+    // POST /api/save-md — write markdown content back to disk
+    if (url.pathname === '/api/save-md' && req.method === 'POST') {
+      try {
+        const body = await req.json() as { path?: string; content?: string };
+        if (!body.path || typeof body.content !== 'string') {
+          return new Response(JSON.stringify({ error: 'Missing path or content' }), {
+            status: 400, headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        if (!body.path.endsWith('.md')) {
+          return new Response(JSON.stringify({ error: 'Only .md files' }), {
+            status: 400, headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        await Bun.write(body.path, body.content);
+        return new Response(JSON.stringify({ ok: true }), {
+          headers: { 'Content-Type': 'application/json' },
+        });
+      } catch (err) {
+        console.error('[save-md] error:', err);
+        return new Response(JSON.stringify({ error: String(err) }), {
+          status: 500, headers: { 'Content-Type': 'application/json' },
+        });
       }
     }
 
