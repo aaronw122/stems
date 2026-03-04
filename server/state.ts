@@ -1,6 +1,6 @@
 import type { ServerWebSocket } from 'bun';
 import type { WeftNode, WeftEdge, ServerMessage, TerminalMessage } from '../shared/types.ts';
-import { scheduleSave, flushSave } from './persistence.ts';
+import { scheduleSave, flushSave, setTerminalGetter } from './persistence.ts';
 
 export { flushSave };
 
@@ -101,6 +101,20 @@ export function getTerminalMessages(nodeId: string, lastN?: number): TerminalMes
 export function clearTerminalBuffer(nodeId: string): void {
   terminalBuffers.delete(nodeId);
 }
+
+export function getTerminalBuffers(): Map<string, TerminalMessage[]> {
+  return terminalBuffers;
+}
+
+export function hydrateTerminalBuffers(data: Map<string, TerminalMessage[]>): void {
+  terminalBuffers.clear();
+  for (const [nodeId, messages] of data) {
+    terminalBuffers.set(nodeId, messages);
+  }
+}
+
+// Register the terminal getter so persistence can save buffers alongside workspace
+setTerminalGetter(() => terminalBuffers);
 
 // ── Human-needed helpers ─────────────────────────────────────────────
 
@@ -303,6 +317,9 @@ export function removeFromDoneList(nodeId: string): boolean {
 export function broadcastTerminal(nodeId: string, messages: TerminalMessage[]): void {
   // Store messages server-side for context summarization
   appendTerminalMessages(nodeId, messages);
+
+  // Trigger a debounced save so terminal changes are persisted
+  scheduleSave(getStateSnapshot);
 
   const subs = terminalSubscriptions.get(nodeId);
   if (!subs || subs.size === 0) return;
