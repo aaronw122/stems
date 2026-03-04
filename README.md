@@ -1,6 +1,8 @@
 # stems
 
-i built this because i was sick of getting context overload looking at too many terminals. needed a better way to manage my agents. this is a localhost GUI for visualizing and managing Claude Code agent sessions as a visual DAG. repos at the root, features branching off, subtasks at the leaves. each node is a real Claude CLI session you can peek into, spawn children from, and track to completion.
+i built this because i was sick of looking at too many terminals. needed a better way to manage my agents. 
+
+this is a way to visualize and manage Claude Code agent sessions with minimal cognitive load. repos at the root, features branching off, subtasks at the leaves. each node is a real Claude CLI session you can look into, spawn children from, and track to completion.
 
 **stack:** Bun + Vite + React + TypeScript + xyflow + Tailwind + Zustand
 
