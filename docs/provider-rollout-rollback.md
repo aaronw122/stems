@@ -36,6 +36,10 @@ Expected shape:
 }
 ```
 
+For M1 runtime-path verification, server logs should include:
+- `[session] Claude runtime mode: adapter ...` when `STEMS_PROVIDER_CLAUDE_ADAPTER_ENABLED=true`
+- `[session] Claude runtime mode: legacy ...` when `STEMS_PROVIDER_CLAUDE_ADAPTER_ENABLED=false`
+
 ## Rollback drill commands
 
 Set flags, restart server, then re-check `/api/health`.
