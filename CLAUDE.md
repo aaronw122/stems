@@ -119,4 +119,4 @@ If you notice a pattern, convention, or piece of knowledge that would help futur
 - **Kill background agents before dev servers.** "Clear" agents can outlive tasks and trigger reload loops.
   - **Diagnose:** `pgrep -lf 'claude -p|codex exec|gemini -m'`
   - **Kill:** `pkill -f 'claude -p'; pkill -f 'codex exec'; pkill -f 'gemini -m'`
-  - **Verify ports free:** `lsof -i :3000` and `lsof -i :5173`
+  - **Verify ports free:** `lsof -i :7482` and `lsof -i :7483`

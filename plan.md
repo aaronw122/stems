@@ -294,7 +294,7 @@ The display stage is an optional visual hint layered on top of `running`. It is 
 
 ## Verification
 
-1. `bun install && bun dev` — server starts on :4800, Vite on :5173
+1. `bun install && bun dev` — server starts on :7482, Vite on :7483
 2. Open browser → see empty canvas with "Add Repo" button
 3. Add a repo → node appears
 4. Spawn a feature → see Claude output streaming in terminal peek

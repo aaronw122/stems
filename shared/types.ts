@@ -39,6 +39,17 @@ export type NodeType = 'repo' | 'feature' | 'subtask' | 'phantom';
 
 export type HumanNeededType = 'question' | 'permission' | 'error' | 'idle' | null;
 
+export type ProviderId = 'claude' | 'codex';
+
+export interface RuntimeMetadata {
+  /** Runtime implementation identifier (ex: claude-agent-sdk, codex-cli) */
+  runtimeId: string;
+  /** Provider model identifier when known */
+  modelId: string | null;
+  /** Provider-specific opaque resume token */
+  resumeToken: string | null;
+}
+
 // ── AskUserQuestion payload (from Claude CLI stream-json) ───────────
 
 export interface AskUserQuestionOption {
@@ -72,6 +83,9 @@ export interface WeftNode {
   humanNeededType: HumanNeededType;
   humanNeededPayload: unknown;
 
+  providerId: ProviderId;
+  runtime: RuntimeMetadata;
+  /** Legacy Claude alias retained for backward compatibility */
   sessionId: string | null;
   errorInfo: { type: string; message: string } | null;
 

@@ -2,6 +2,12 @@ import { broadcastTerminal, updateNode, getNode, broadcast, clearHumanNeeded, ad
 import { trackFileEdit } from './overlap-tracker.ts';
 import type { DisplayStage, TerminalMessage, WeftNode, WeftEdge } from '../shared/types.ts';
 import { extractPRUrls, trackPR } from './pr-tracker.ts';
+import {
+  DEFAULT_PROVIDER_ID,
+  createDefaultRuntimeMetadata,
+  normalizeRuntimeMetadata,
+  resolveResumeCompatibility,
+} from './provider-metadata.ts';
 // Note: autoMoveIfComplete is called by session.ts, not here.
 // The message processor accumulates cost but doesn't manage node lifecycle.
 import type {
@@ -166,6 +172,8 @@ export function createMessageProcessor(nodeId: string) {
     activeSubagents.set(taskId, phantomId);
     if (toolUseId) toolUseIdToTaskId.set(toolUseId, taskId);
     subagentAccumulatedStats.set(taskId, { toolUseCount: 0, totalTokens: 0 });
+    const parentNode = getNode(nodeId);
+    const providerId = parentNode?.providerId ?? DEFAULT_PROVIDER_ID;
 
     // Resolve agent name: correlate tool_use_id back to the Agent tool_use
     // block's subagent_type. Fall back to description or generic label.
@@ -181,6 +189,8 @@ export function createMessageProcessor(nodeId: string) {
       needsHuman: false,
       humanNeededType: null,
       humanNeededPayload: null,
+      providerId,
+      runtime: createDefaultRuntimeMetadata(providerId),
       sessionId: null,
       errorInfo: null,
       overlap: { hasOverlap: false, overlappingNodes: [] },
@@ -319,7 +329,19 @@ export function createMessageProcessor(nodeId: string) {
 
   function handleSystemInit(msg: SDKSystemMessage): void {
     console.log(`[ctx-debug:${nodeId}] system init keys:`, Object.keys(msg), `cwd:${msg.cwd}, model:${msg.model}`);
-    const updated = updateNode(nodeId, { sessionId: msg.session_id });
+    const node = getNode(nodeId);
+    const providerId = node?.providerId ?? DEFAULT_PROVIDER_ID;
+    const runtime = normalizeRuntimeMetadata(providerId, node?.runtime);
+    const resumeCompat = resolveResumeCompatibility(providerId, msg.session_id, node?.sessionId);
+    const updated = updateNode(nodeId, {
+      providerId,
+      sessionId: resumeCompat.sessionId,
+      runtime: {
+        ...runtime,
+        modelId: typeof msg.model === 'string' ? msg.model : runtime.modelId,
+        resumeToken: resumeCompat.resumeToken,
+      },
+    });
     if (updated) {
       broadcast({ type: 'node_updated', node: updated });
     }

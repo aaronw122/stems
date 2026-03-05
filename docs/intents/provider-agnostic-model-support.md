@@ -1,7 +1,7 @@
 ---
 title: "Provider-Agnostic Model Support"
 author: "human:Aaron"
-version: 3
+version: 4
 created: 2026-03-04
 ---
 
@@ -55,3 +55,19 @@ Not specified.
 - [ask] Final provider selection UX policy (global default vs per-node override).
 - [ask] Context-summary policy (Claude-only fallback first vs provider-aware implementation now).
 - [ask] Codex resume-token assumptions if behavior is ambiguous in live testing.
+
+## M0 Compatibility Policy (Implemented)
+- `providerId` is now explicit on every node (`claude` default).
+- `runtime` metadata is now explicit on every node:
+  - `runtimeId` (runtime implementation),
+  - `modelId` (nullable),
+  - `resumeToken` (provider-specific opaque token, nullable).
+- Legacy workspace backfill is deterministic:
+  - Missing `providerId` defaults to `claude`.
+  - Missing/partial `runtime` defaults to the provider runtime (`claude-agent-sdk` or `codex-cli`).
+  - Legacy Claude-only `sessionId` is promoted into `runtime.resumeToken`.
+- Session compatibility policy:
+  - `runtime.resumeToken` is canonical.
+  - `sessionId` is retained as a legacy alias for additive websocket/persistence compatibility.
+  - For Claude, `sessionId` and `resumeToken` are mirrored.
+  - For non-Claude providers, legacy `sessionId` is never auto-promoted into `resumeToken`.
