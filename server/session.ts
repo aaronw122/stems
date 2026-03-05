@@ -3,7 +3,11 @@ import type { Query, Options, SlashCommand, SDKSystemMessage, SDKUserMessage } f
 import { updateNode, getNode, broadcast, broadcastTerminal } from './state.ts';
 import { createMessageProcessor } from './message-processor.ts';
 import { autoMoveIfComplete } from './completion.ts';
-import type { ImageAttachment, QueuedMessage } from '../shared/types.ts';
+import type { ImageAttachment, ProviderId, QueuedMessage } from '../shared/types.ts';
+import {
+  DEFAULT_PROVIDER_ID,
+  resolveResumeCompatibility,
+} from './provider-metadata.ts';
 
 // Content block types for building multimodal prompts (matches Anthropic SDK MessageParam)
 type ImageMediaType = 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp';
@@ -44,7 +48,9 @@ const claudePath = (() => {
 
 interface Session {
   nodeId: string;
-  sessionId: string | null;  // captured from SDK init message, used for resume
+  providerId: ProviderId;
+  sessionId: string | null; // legacy alias retained for Claude compatibility
+  resumeToken: string | null; // canonical provider-specific resume token
   repoPath: string;
   baseOptions: Omit<Options, 'abortController' | 'resume'>;
   processor: ReturnType<typeof createMessageProcessor>;
@@ -119,14 +125,27 @@ export async function generateFeatureTitle(
 
 // ── Spawn a session via SDK query() ─────────────────────────────────
 
+export interface SpawnSessionContext {
+  providerId?: ProviderId;
+  resumeToken?: string | null;
+  sessionId?: string | null;
+}
+
 export async function spawnSession(
   nodeId: string,
   repoPath: string,
   prompt: string,
   appendSystemPrompt?: string,
   images?: ImageAttachment[],
-  resumeSessionId?: string,
+  context?: SpawnSessionContext,
 ): Promise<void> {
+  const providerId = context?.providerId ?? DEFAULT_PROVIDER_ID;
+  const resumeCompat = resolveResumeCompatibility(
+    providerId,
+    context?.resumeToken,
+    context?.sessionId,
+  );
+
   // Build shared options (reused across turns)
   const baseOptions: Omit<Options, 'abortController' | 'resume'> = {
     cwd: repoPath,
@@ -153,7 +172,9 @@ export async function spawnSession(
 
   const session: Session = {
     nodeId,
-    sessionId: resumeSessionId ?? null,
+    providerId,
+    sessionId: resumeCompat.sessionId,
+    resumeToken: resumeCompat.resumeToken,
     repoPath,
     baseOptions,
     processor,
@@ -193,7 +214,7 @@ export async function spawnSession(
 function buildImagePrompt(
   text: string,
   images: ImageAttachment[],
-  sessionId: string | null,
+  resumeToken: string | null,
 ): AsyncIterable<SDKUserMessage> {
   const content: ContentBlock[] = [];
 
@@ -216,7 +237,7 @@ function buildImagePrompt(
       type: 'user' as const,
       message: { role: 'user' as const, content } as SDKUserMessage['message'],
       parent_tool_use_id: null,
-      session_id: sessionId ?? '',
+      session_id: resumeToken ?? '',
     };
   })();
 }
@@ -235,17 +256,17 @@ function runTurn(session: Session, prompt: string, images?: ImageAttachment[]): 
   };
 
   // Resume the session for follow-up turns
-  if (session.sessionId) {
-    options.resume = session.sessionId;
+  if (session.resumeToken) {
+    options.resume = session.resumeToken;
     // System prompt only needed on first turn
     delete options.systemPrompt;
   }
 
-  console.log(`[session:${nodeId}] running turn, resume=${session.sessionId ?? 'none'}, prompt: ${prompt.slice(0, 80)}...${images?.length ? ` (${images.length} image(s))` : ''}`);
+  console.log(`[session:${nodeId}] running turn, resume=${session.resumeToken ?? 'none'}, prompt: ${prompt.slice(0, 80)}...${images?.length ? ` (${images.length} image(s))` : ''}`);
 
   // Use multimodal prompt when images are present, plain string otherwise
   const effectivePrompt = images && images.length > 0
-    ? buildImagePrompt(prompt, images, session.sessionId)
+    ? buildImagePrompt(prompt, images, session.resumeToken)
     : prompt;
 
   const queryInstance = query({ prompt: effectivePrompt, options });
@@ -267,7 +288,13 @@ async function consumeTurn(session: Session, queryInstance: Query): Promise<void
 
       // Capture session_id from init message for future resume calls
       if (msg.type === 'system' && 'subtype' in msg && msg.subtype === 'init') {
-        session.sessionId = msg.session_id;
+        const resumeCompat = resolveResumeCompatibility(
+          session.providerId,
+          msg.session_id,
+          session.sessionId,
+        );
+        session.sessionId = resumeCompat.sessionId;
+        session.resumeToken = resumeCompat.resumeToken;
 
         // Capture slash commands and emit session banner from initialization result
         queryInstance.initializationResult().then(async (initResult) => {
