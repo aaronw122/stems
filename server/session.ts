@@ -1,5 +1,3 @@
-import { query, AbortError } from '@anthropic-ai/claude-agent-sdk';
-import type { Query, Options, SlashCommand, SDKSystemMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { updateNode, getNode, broadcast, broadcastTerminal } from './state.ts';
 import { createMessageProcessor } from './message-processor.ts';
 import { autoMoveIfComplete } from './completion.ts';
@@ -8,39 +6,19 @@ import {
   DEFAULT_PROVIDER_ID,
   resolveResumeCompatibility,
 } from './provider-metadata.ts';
-
-// Content block types for building multimodal prompts (matches Anthropic SDK MessageParam)
-type ImageMediaType = 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp';
-
-interface ImageContentBlock {
-  type: 'image';
-  source: {
-    type: 'base64';
-    media_type: ImageMediaType;
-    data: string;
-  };
-}
-
-interface TextContentBlock {
-  type: 'text';
-  text: string;
-}
-
-type ContentBlock = ImageContentBlock | TextContentBlock;
 import { expandSlashCommand, findSlashCommand } from './slash-expand.ts';
-import { execSync } from 'node:child_process';
-
-// ── Resolve system Claude CLI path ──────────────────────────────────
-// The SDK bundles its own CLI which doesn't handle OAuth tokens properly.
-// Use the system-installed CLI instead so CLAUDE_CODE_OAUTH_TOKEN works
-// for Max/Pro subscription billing.
-const claudePath = (() => {
-  try {
-    return execSync('which claude', { encoding: 'utf-8' }).trim() || undefined;
-  } catch {
-    return undefined;
-  }
-})();
+import {
+  ClaudeAbortError,
+  createClaudeBaseOptions,
+  createClaudeTurnQuery,
+  generateClaudeFeatureTitle,
+  handleClaudeInitMessage,
+} from './providers/claude-adapter.ts';
+import type {
+  ClaudeQuery,
+  ClaudeSessionOptions,
+  ClaudeSlashCommand,
+} from './providers/claude-adapter.ts';
 
 // ── Session tracking ────────────────────────────────────────────────
 // Each session persists across multiple turns. Between turns, no query
@@ -52,26 +30,14 @@ interface Session {
   sessionId: string | null; // legacy alias retained for Claude compatibility
   resumeToken: string | null; // canonical provider-specific resume token
   repoPath: string;
-  baseOptions: Omit<Options, 'abortController' | 'resume'>;
+  baseOptions: ClaudeSessionOptions;
   processor: ReturnType<typeof createMessageProcessor>;
   abortController: AbortController | null;  // non-null only during an active turn
-  slashCommands: SlashCommand[] | null;  // captured from SDK init, used for autocomplete
+  slashCommands: ClaudeSlashCommand[] | null;  // captured from SDK init, used for autocomplete
   pendingInputs: QueuedMessage[];  // queued user messages waiting for current turn to complete
 }
 
 const sessions = new Map<string, Session>();
-
-// ── Clean env — strip CLAUDECODE so child Claude processes don't refuse to start
-// Inject STEMS_OAUTH_TOKEN as CLAUDE_CODE_OAUTH_TOKEN so spawned sessions use
-// the user's Max/Pro subscription without polluting their normal CLI auth.
-
-function getCleanEnv(): Record<string, string | undefined> {
-  const { CLAUDECODE, CLAUDE_CODE_ENTRYPOINT, STEMS_OAUTH_TOKEN, ...clean } = process.env;
-  if (STEMS_OAUTH_TOKEN) {
-    clean.CLAUDE_CODE_OAUTH_TOKEN = STEMS_OAUTH_TOKEN;
-  }
-  return clean;
-}
 
 // ── Lightweight title generation ─────────────────────────────────────
 // Fires a small SDK query to generate a smart feature title from the
@@ -84,33 +50,7 @@ export async function generateFeatureTitle(
   repoPath: string,
 ): Promise<void> {
   try {
-    const titleQuery = query({
-      prompt: `In exactly 2-3 words, name the feature or task described below. Output ONLY the title, nothing else. No quotes, no punctuation, no explanation. Maximum 3 words.\n\n${userMessage}`,
-      options: {
-        cwd: repoPath,
-        permissionMode: 'bypassPermissions',
-        allowDangerouslySkipPermissions: true,
-        pathToClaudeCodeExecutable: claudePath,
-        env: getCleanEnv(),
-      },
-    });
-
-    let responseText = '';
-    for await (const msg of titleQuery) {
-      if (
-        msg.type === 'assistant' &&
-        msg.message?.content &&
-        Array.isArray(msg.message.content)
-      ) {
-        for (const block of msg.message.content) {
-          if (block.type === 'text' && 'text' in block) {
-            responseText += String(block.text);
-          }
-        }
-      }
-    }
-
-    const title = responseText.trim().replace(/^["']|["']$/g, '');
+    const title = await generateClaudeFeatureTitle(userMessage, repoPath);
     if (title && title.length >= 3 && title.length <= 60) {
       const updated = updateNode(nodeId, { title });
       if (updated) {
@@ -146,27 +86,7 @@ export async function spawnSession(
     context?.sessionId,
   );
 
-  // Build shared options (reused across turns)
-  const baseOptions: Omit<Options, 'abortController' | 'resume'> = {
-    cwd: repoPath,
-    model: 'claude-opus-4-6',
-    permissionMode: 'bypassPermissions',
-    allowDangerouslySkipPermissions: true,
-    includePartialMessages: true,
-    // SDK defaults to isolation mode unless settingSources is set explicitly.
-    // Include all standard sources so global + project CLAUDE.md files load.
-    settingSources: ['user', 'project', 'local'],
-    pathToClaudeCodeExecutable: claudePath,
-    env: getCleanEnv(),
-  };
-
-  // Always use the claude_code preset so sessions load the full system
-  // scaffolding (global CLAUDE.md, project CLAUDE.md, tools, etc.).
-  // Without this, the SDK uses a minimal default and context is ~half
-  // what the real CLI loads.
-  baseOptions.systemPrompt = appendSystemPrompt
-    ? { type: 'preset', preset: 'claude_code', append: appendSystemPrompt }
-    : { type: 'preset', preset: 'claude_code' };
+  const baseOptions = createClaudeBaseOptions(repoPath, appendSystemPrompt);
 
   const processor = createMessageProcessor(nodeId);
 
@@ -209,39 +129,6 @@ export async function spawnSession(
   runTurn(session, effectivePrompt, images);
 }
 
-// ── Build multimodal prompt with images ──────────────────────────────
-
-function buildImagePrompt(
-  text: string,
-  images: ImageAttachment[],
-  resumeToken: string | null,
-): AsyncIterable<SDKUserMessage> {
-  const content: ContentBlock[] = [];
-
-  for (const img of images) {
-    content.push({
-      type: 'image',
-      source: {
-        type: 'base64',
-        media_type: img.mediaType as ImageMediaType,
-        data: img.data,
-      },
-    });
-  }
-  if (text) {
-    content.push({ type: 'text', text });
-  }
-
-  return (async function* () {
-    yield {
-      type: 'user' as const,
-      message: { role: 'user' as const, content } as SDKUserMessage['message'],
-      parent_tool_use_id: null,
-      session_id: resumeToken ?? '',
-    };
-  })();
-}
-
 // ── Run a single turn (prompt → response) ───────────────────────────
 
 function runTurn(session: Session, prompt: string, images?: ImageAttachment[]): void {
@@ -249,27 +136,15 @@ function runTurn(session: Session, prompt: string, images?: ImageAttachment[]): 
   const abortController = new AbortController();
   session.abortController = abortController;
 
-  // Build turn-specific options
-  const options: Options = {
-    ...session.baseOptions,
-    abortController,
-  };
-
-  // Resume the session for follow-up turns
-  if (session.resumeToken) {
-    options.resume = session.resumeToken;
-    // System prompt only needed on first turn
-    delete options.systemPrompt;
-  }
-
   console.log(`[session:${nodeId}] running turn, resume=${session.resumeToken ?? 'none'}, prompt: ${prompt.slice(0, 80)}...${images?.length ? ` (${images.length} image(s))` : ''}`);
 
-  // Use multimodal prompt when images are present, plain string otherwise
-  const effectivePrompt = images && images.length > 0
-    ? buildImagePrompt(prompt, images, session.resumeToken)
-    : prompt;
-
-  const queryInstance = query({ prompt: effectivePrompt, options });
+  const queryInstance = createClaudeTurnQuery({
+    baseOptions: session.baseOptions,
+    abortController,
+    prompt,
+    images,
+    resumeToken: session.resumeToken,
+  });
 
   // Consume the query stream in the background
   consumeTurn(session, queryInstance).catch((err) => {
@@ -279,65 +154,30 @@ function runTurn(session: Session, prompt: string, images?: ImageAttachment[]): 
 
 // ── Consume a single turn's query stream ────────────────────────────
 
-async function consumeTurn(session: Session, queryInstance: Query): Promise<void> {
+async function consumeTurn(session: Session, queryInstance: ClaudeQuery): Promise<void> {
   const { nodeId, processor } = session;
 
   try {
     for await (const msg of queryInstance) {
       processor.processMessage(msg);
 
-      // Capture session_id from init message for future resume calls
-      if (msg.type === 'system' && 'subtype' in msg && msg.subtype === 'init') {
-        const resumeCompat = resolveResumeCompatibility(
-          session.providerId,
-          msg.session_id,
-          session.sessionId,
-        );
-        session.sessionId = resumeCompat.sessionId;
-        session.resumeToken = resumeCompat.resumeToken;
-
-        // Capture slash commands and emit session banner from initialization result
-        queryInstance.initializationResult().then(async (initResult) => {
-          session.slashCommands = initResult.commands;
-          console.log(`[session:${nodeId}] captured ${initResult.commands.length} slash commands`);
-
-          // Capture init fields needed for the banner
-          const systemMsg = msg as SDKSystemMessage;
-          const claudeCodeVersion = systemMsg.claude_code_version;
-          const rawModel = systemMsg.model;
-          const cwd = systemMsg.cwd;
-
-          // Resolve display name from SDK's authoritative ModelInfo list
-          const activeModel = initResult.models.find(m => m.value === rawModel);
-          const displayName = activeModel?.displayName ?? rawModel;
-
-          // Check for upgrade (non-blocking, cached)
-          const { checkForUpdate } = await import('./version-check.ts');
-          const upgrade = await checkForUpdate(claudeCodeVersion);
-
-          // Emit the completed banner as a one-shot terminal message
-          broadcastTerminal(nodeId, [{
-            type: 'session_banner',
-            text: '',
-            bannerData: {
-              claudeCodeVersion,
-              model: rawModel,
-              modelDisplayName: displayName,
-              subscriptionType: initResult.account?.subscriptionType,
-              cwd,
-              upgradeAvailable: upgrade.available,
-              latestVersion: upgrade.latest,
-            },
-          }]);
-
-          console.log(`[session:${nodeId}] emitted session_banner: ${displayName}, ${initResult.account?.subscriptionType ?? 'unknown plan'}`);
-        }).catch((err) => {
-          console.warn(`[session:${nodeId}] failed to build session banner:`, err);
-        });
+      const initUpdate = handleClaudeInitMessage({
+        nodeId,
+        providerId: session.providerId,
+        legacySessionId: session.sessionId,
+        msg,
+        queryInstance,
+        onSlashCommands: (commands) => {
+          session.slashCommands = commands;
+        },
+      });
+      if (initUpdate) {
+        session.sessionId = initUpdate.sessionId;
+        session.resumeToken = initUpdate.resumeToken;
       }
     }
   } catch (err: unknown) {
-    const isAbort = err instanceof AbortError;
+    const isAbort = err instanceof ClaudeAbortError;
 
     if (!isAbort) {
       console.error(`[session:${nodeId}] query stream error:`, err);
@@ -524,7 +364,7 @@ export function hasSession(nodeId: string): boolean {
 
 // ── Query slash commands ─────────────────────────────────────────────
 
-export function getSlashCommands(nodeId: string): SlashCommand[] | null {
+export function getSlashCommands(nodeId: string): ClaudeSlashCommand[] | null {
   const session = sessions.get(nodeId);
   return session?.slashCommands ?? null;
 }
