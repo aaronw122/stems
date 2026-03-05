@@ -9,19 +9,19 @@ This document implements M0.5 tasks 4-5 from the provider-agnostic implementatio
 
 - Canonical IDs: `turnId`, `messageId`, `toolCallId`, `taskId`, `questionId`
 - Normalized event names:
-  - `init`
-  - `assistant_text_delta`
-  - `tool_call`
-  - `tool_result`
-  - `task_started`
-  - `task_progress`
-  - `task_completed`
-  - `task_failed`
-  - `human_needed`
-  - `usage`
-  - `result`
-  - `system`
-  - `error`
+  - `session.started`
+  - `message.assistant.delta`
+  - `tool.call.started`
+  - `tool.call.completed`
+  - `task.started`
+  - `task.progress`
+  - `task.completed`
+  - `task.failed`
+  - `human.needed`
+  - `turn.completed`
+  - `turn.failed`
+  - `system.info`
+  - `system.error`
 
 ## Unknown/Unmappable Event Policy (Normative)
 
@@ -42,18 +42,18 @@ This document implements M0.5 tasks 4-5 from the provider-agnostic implementatio
 
 | Claude source event | Normalized event | ID mapping | Notes |
 | --- | --- | --- | --- |
-| `system` + `subtype=init` | `init` | `messageId` generated if absent | Session bootstrap metadata |
-| `stream_event` + `content_block_delta.text_delta` | `assistant_text_delta` | `turnId`/`messageId` from active turn context | Streaming assistant text |
-| `assistant.content[].tool_use` | `tool_call` | `toolCallId <- block.id`, `messageId <- assistant message id` | Tool invocation |
-| `assistant.content[].tool_result` (or equivalent tool result block) | `tool_result` | `toolCallId <- block.tool_use_id` | Tool completion payload |
-| `system` + `subtype=task_started` | `task_started` | `taskId <- task_id`, `toolCallId <- tool_use_id` | Subagent/task lifecycle start |
-| `system` + `subtype=task_progress` | `task_progress` | `taskId <- task_id` | Subagent/task progress updates |
-| `system` + `subtype=task_notification` + `status in {completed, stopped}` | `task_completed` | `taskId <- task_id` | Terminal task success/stop |
-| `system` + `subtype=task_notification` + `status=failed` | `task_failed` | `taskId <- task_id` | Terminal task failure |
-| `assistant.content[].tool_use` + `name=AskUserQuestion` | `human_needed` | `questionId` from payload when present, else generated | Human input required |
-| `result` + `subtype=success` | `usage` then `result` | `turnId` from active turn | Emit usage before result close |
-| `result` + `subtype=error_*` or assistant-level API error | `error` then `result` | `turnId`/`messageId` from context | Error is visible and terminal |
-| Any other Claude event not mapped above | `system`/`error` fallback | Best-effort canonical IDs | Must follow unknown-event policy |
+| `system` + `subtype=init` | `session.started` | `messageId` generated if absent | Session bootstrap metadata |
+| `stream_event` + `content_block_delta.text_delta` | `message.assistant.delta` | `turnId`/`messageId` from active turn context | Streaming assistant text |
+| `assistant.content[].tool_use` | `tool.call.started` | `toolCallId <- block.id`, `messageId <- assistant message id` | Tool invocation |
+| `assistant.content[].tool_result` (or equivalent tool result block) | `tool.call.completed` | `toolCallId <- block.tool_use_id` | Tool completion payload |
+| `system` + `subtype=task_started` | `task.started` | `taskId <- task_id`, `toolCallId <- tool_use_id` | Subagent/task lifecycle start |
+| `system` + `subtype=task_progress` | `task.progress` | `taskId <- task_id` | Subagent/task progress updates |
+| `system` + `subtype=task_notification` + `status in {completed, stopped}` | `task.completed` | `taskId <- task_id` | Terminal task success/stop |
+| `system` + `subtype=task_notification` + `status=failed` | `task.failed` | `taskId <- task_id` | Terminal task failure |
+| `assistant.content[].tool_use` + `name=AskUserQuestion` | `human.needed` | `questionId` from payload when present, else generated | Human input required |
+| `result` + `subtype=success` | `turn.completed` | `turnId` from active turn | Close turn on successful result |
+| `result` + `subtype=error_*` or assistant-level API error | `system.error` then `turn.failed` | `turnId`/`messageId` from context | Error is visible and terminal |
+| Any other Claude event not mapped above | `system.info`/`system.error` fallback | Best-effort canonical IDs | Must follow unknown-event policy |
 
 ## Codex -> Normalized Mapping (Adapter Contract)
 
@@ -61,19 +61,19 @@ Codex mapping is defined at the adapter contract boundary (event names below are
 
 | Codex adapter source event | Normalized event | ID mapping | Notes |
 | --- | --- | --- | --- |
-| `session_started` | `init` | `messageId` generated if absent | Session bootstrap metadata |
-| `text_delta` | `assistant_text_delta` | `turnId` + `messageId` from adapter turn context | Streaming assistant text |
-| `tool_call_started` | `tool_call` | `toolCallId <- source.toolCallId` | Tool invocation start |
-| `tool_call_completed` | `tool_result` | `toolCallId <- source.toolCallId` | Tool output/result |
-| `task_started` | `task_started` | `taskId <- source.taskId`, optional `toolCallId` | Subagent/task lifecycle start |
-| `task_progress` | `task_progress` | `taskId <- source.taskId` | Subagent/task progress |
-| `task_completed` | `task_completed` | `taskId <- source.taskId` | Terminal task completion |
-| `task_failed` | `task_failed` | `taskId <- source.taskId` | Terminal task failure |
-| `human_input_required` | `human_needed` | `questionId <- source.questionId` (generate if absent) | Question/approval required |
-| `usage_reported` | `usage` | `turnId <- source.turnId` | Usage/cost/token snapshot |
-| `run_completed` | `result` | `turnId <- source.turnId` | Turn complete |
-| `run_failed` | `error` then `result` | `turnId <- source.turnId` | Error must be visible |
-| Any other Codex adapter event not mapped above | `system`/`error` fallback | Best-effort canonical IDs | Must follow unknown-event policy |
+| `session_started` | `session.started` | `messageId` generated if absent | Session bootstrap metadata |
+| `text_delta` | `message.assistant.delta` | `turnId` + `messageId` from adapter turn context | Streaming assistant text |
+| `tool_call_started` | `tool.call.started` | `toolCallId <- source.toolCallId` | Tool invocation start |
+| `tool_call_completed` | `tool.call.completed` | `toolCallId <- source.toolCallId` | Tool output/result |
+| `task_started` | `task.started` | `taskId <- source.taskId`, optional `toolCallId` | Subagent/task lifecycle start |
+| `task_progress` | `task.progress` | `taskId <- source.taskId` | Subagent/task progress |
+| `task_completed` | `task.completed` | `taskId <- source.taskId` | Terminal task completion |
+| `task_failed` | `task.failed` | `taskId <- source.taskId` | Terminal task failure |
+| `human_input_required` | `human.needed` | `questionId <- source.questionId` (generate if absent) | Question/approval required |
+| `usage_reported` | `system.info` | `turnId <- source.turnId` | Usage/cost/token snapshot in payload |
+| `run_completed` | `turn.completed` | `turnId <- source.turnId` | Turn complete |
+| `run_failed` | `system.error` then `turn.failed` | `turnId <- source.turnId` | Error must be visible |
+| Any other Codex adapter event not mapped above | `system.info`/`system.error` fallback | Best-effort canonical IDs | Must follow unknown-event policy |
 
 ## Negative-Case Examples (Unmappable Events)
 
@@ -81,23 +81,22 @@ Codex mapping is defined at the adapter contract boundary (event names below are
 
 - Input (Claude): `stream_event` with delta subtype not recognized by schema
 - Problem: `unsupported_payload_shape`
-- Required output: visible `system` fallback including `provider=claude`, `sourceEventType=stream_event`, raw payload snippet, generated `messageId`
+- Required output: visible `system.info` fallback including `provider=claude`, `sourceEventType=stream_event`, raw payload snippet, generated `messageId`
 
 ### Example B: Claude tool result missing `tool_use_id`
 
 - Input (Claude): tool result block without `tool_use_id`
 - Problem: `missing_required_field` and no reliable tool correlation
-- Required output: visible `error` fallback with recovered `turnId`/`messageId` (if present) and reason code
+- Required output: visible `system.error` fallback with recovered `turnId`/`messageId` (if present) and reason code
 
 ### Example C: Codex tool result references unknown tool call
 
 - Input (Codex): `tool_call_completed` with `toolCallId` not seen in prior `tool_call_started`
 - Problem: `id_linkage_failure`
-- Required output: visible `error` fallback including offending `toolCallId`, plus continued processing of later events
+- Required output: visible `system.error` fallback including offending `toolCallId`, plus continued processing of later events
 
 ### Example D: Unknown Codex adapter event
 
 - Input (Codex): unrecognized adapter event name (for example `checkpoint_hint`)
 - Problem: `unknown_event_type`
-- Required output: visible `system` fallback (not silent drop), provider/source metadata attached
-
+- Required output: visible `system.info` fallback (not silent drop), provider/source metadata attached
