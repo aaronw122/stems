@@ -38,6 +38,7 @@ import { loadWorkspace, loadTerminals } from './persistence.ts';
 import { getCustomSkills } from './skill-scanner.ts';
 import { join, basename, resolve } from 'node:path';
 import { realpath } from 'node:fs/promises';
+import { DEFAULT_PROVIDER_ID, createDefaultRuntimeMetadata } from './provider-metadata.ts';
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -46,6 +47,7 @@ function makeId(): string {
 }
 
 function makeRepoNode(repoPath: string): WeftNode {
+  const providerId = DEFAULT_PROVIDER_ID;
   return {
     id: makeId(),
     type: 'repo',
@@ -56,6 +58,8 @@ function makeRepoNode(repoPath: string): WeftNode {
     needsHuman: false,
     humanNeededType: null,
     humanNeededPayload: null,
+    providerId,
+    runtime: createDefaultRuntimeMetadata(providerId),
     sessionId: null,
     errorInfo: null,
     overlap: { hasOverlap: false, overlappingNodes: [] },
@@ -74,6 +78,7 @@ function makeChildNode(
   parentId: string,
   type: 'feature' | 'subtask',
   title: string,
+  providerId = DEFAULT_PROVIDER_ID,
 ): WeftNode {
   return {
     id: makeId(),
@@ -85,6 +90,8 @@ function makeChildNode(
     needsHuman: false,
     humanNeededType: null,
     humanNeededPayload: null,
+    providerId,
+    runtime: createDefaultRuntimeMetadata(providerId),
     sessionId: null,
     errorInfo: null,
     overlap: { hasOverlap: false, overlappingNodes: [] },
@@ -155,7 +162,9 @@ async function handleMessage(ws: ServerWebSocket<unknown>, raw: string): Promise
     case 'spawn_feature':
     case 'spawn_subtask': {
       const childType = msg.type === 'spawn_feature' ? 'feature' : 'subtask';
-      const node = makeChildNode(msg.parentId, childType as 'feature' | 'subtask', msg.title);
+      const parentNode = getNode(msg.parentId);
+      const providerId = parentNode?.providerId ?? DEFAULT_PROVIDER_ID;
+      const node = makeChildNode(msg.parentId, childType as 'feature' | 'subtask', msg.title, providerId);
       node.prompt = msg.prompt;
       addNode(node);
 
@@ -191,7 +200,11 @@ async function handleMessage(ws: ServerWebSocket<unknown>, raw: string): Promise
 
         const appendSystemPrompt = promptParts.length > 0 ? promptParts.join('\n\n') : undefined;
         broadcastTerminal(node.id, [{ type: 'user_message', text: msg.prompt }]);
-        await spawnSession(node.id, repoPath, msg.prompt, appendSystemPrompt);
+        await spawnSession(node.id, repoPath, msg.prompt, appendSystemPrompt, undefined, {
+          providerId: node.providerId,
+          resumeToken: node.runtime.resumeToken,
+          sessionId: node.sessionId,
+        });
       } else if (!repoPath) {
         const updated = updateNode(node.id, {
           nodeState: 'crashed',
@@ -383,7 +396,11 @@ async function handleMessage(ws: ServerWebSocket<unknown>, raw: string): Promise
             ? `${spawnImages.map((img) => `[${img.name}]`).join(' ')} ${payload.text}`
             : payload.text;
           broadcastTerminal(nodeId, [{ type: 'user_message', text: spawnDisplayText }]);
-          await spawnSession(nodeId, repoPath, payload.text, appendSystemPrompt, spawnImages, node?.sessionId ?? undefined);
+          await spawnSession(nodeId, repoPath, payload.text, appendSystemPrompt, spawnImages, {
+            providerId: node?.providerId,
+            resumeToken: node?.runtime.resumeToken,
+            sessionId: node?.sessionId,
+          });
           break;
         }
       }
@@ -444,6 +461,17 @@ if (savedWorkspace) {
   }
   if (phantomIds.length > 0) {
     console.log(`[startup] Cleaned up ${phantomIds.length} legacy phantom node(s) from persistence`);
+  }
+
+  const { backfill } = savedWorkspace;
+  if (
+    backfill.providerDefaultsApplied > 0
+    || backfill.runtimeDefaultsApplied > 0
+    || backfill.legacySessionIdsPromoted > 0
+  ) {
+    console.log(
+      `[startup] Persistence backfill: provider=${backfill.providerDefaultsApplied}, runtime=${backfill.runtimeDefaultsApplied}, legacy-session=${backfill.legacySessionIdsPromoted}`,
+    );
   }
 
   console.log(`[startup] Restored workspace: ${savedWorkspace.nodes.length - phantomIds.length} node(s), ${savedWorkspace.doneList.length} done`);

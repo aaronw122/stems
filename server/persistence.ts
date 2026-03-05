@@ -1,13 +1,35 @@
 import { join } from 'path';
 import { homedir } from 'os';
-import type { WeftNode, WeftEdge, TerminalMessage } from '../shared/types.ts';
+import type { ProviderId, RuntimeMetadata, WeftNode, WeftEdge, TerminalMessage } from '../shared/types.ts';
+import {
+  DEFAULT_PROVIDER_ID,
+  isProviderId,
+  normalizeRuntimeMetadata,
+  resolveResumeCompatibility,
+} from './provider-metadata.ts';
 
 // ── Persisted types ─────────────────────────────────────────────────
 
-export type PersistedNode = Pick<
-  WeftNode,
-  'id' | 'type' | 'parentId' | 'title' | 'repoPath' | 'branch' | 'prompt' | 'prUrl' | 'prState' | 'costUsd' | 'tokenUsage' | 'isPhantomSubagent' | 'sessionId'
->;
+export interface PersistedNode {
+  id: string;
+  type: WeftNode['type'];
+  parentId: string | null;
+  title: string;
+  repoPath?: string;
+  branch?: string;
+  prompt?: string;
+  prUrl: string | null;
+  prState: 'open' | 'merged' | 'closed' | null;
+  costUsd: number;
+  tokenUsage: {
+    input: number;
+    output: number;
+  };
+  isPhantomSubagent?: boolean;
+  sessionId?: string | null;
+  providerId?: ProviderId;
+  runtime?: Partial<RuntimeMetadata> | null;
+}
 
 export interface WorkspaceFile {
   version: 1;
@@ -15,6 +37,19 @@ export interface WorkspaceFile {
   nodes: PersistedNode[];
   edges: WeftEdge[];
   doneList: PersistedNode[];
+}
+
+export interface WorkspaceBackfillReport {
+  providerDefaultsApplied: number;
+  runtimeDefaultsApplied: number;
+  legacySessionIdsPromoted: number;
+}
+
+export interface LoadedWorkspace {
+  nodes: WeftNode[];
+  edges: WeftEdge[];
+  doneList: WeftNode[];
+  backfill: WorkspaceBackfillReport;
 }
 
 // ── File paths ──────────────────────────────────────────────────────
@@ -27,7 +62,67 @@ const TERMINALS_TMP_PATH = join(STEMS_DIR, 'terminals.json.tmp');
 
 // ── Node conversion ─────────────────────────────────────────────────
 
+function toFiniteNumber(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+function normalizeTokenUsage(
+  tokenUsage: PersistedNode['tokenUsage'] | null | undefined,
+): { input: number; output: number } {
+  if (!tokenUsage || typeof tokenUsage !== 'object') {
+    return { input: 0, output: 0 };
+  }
+  return {
+    input: toFiniteNumber(tokenUsage.input),
+    output: toFiniteNumber(tokenUsage.output),
+  };
+}
+
+function normalizeProviderId(providerId: unknown): ProviderId {
+  return isProviderId(providerId) ? providerId : DEFAULT_PROVIDER_ID;
+}
+
+function normalizePrState(value: unknown): 'open' | 'merged' | 'closed' | null {
+  return value === 'open' || value === 'merged' || value === 'closed' ? value : null;
+}
+
+interface NodeBackfillInfo {
+  providerDefaulted: boolean;
+  runtimeDefaulted: boolean;
+  legacySessionIdPromoted: boolean;
+}
+
+function emptyBackfillReport(): WorkspaceBackfillReport {
+  return {
+    providerDefaultsApplied: 0,
+    runtimeDefaultsApplied: 0,
+    legacySessionIdsPromoted: 0,
+  };
+}
+
+function mergeBackfillReports(
+  report: WorkspaceBackfillReport,
+  nodeBackfill: NodeBackfillInfo,
+): void {
+  if (nodeBackfill.providerDefaulted) {
+    report.providerDefaultsApplied += 1;
+  }
+  if (nodeBackfill.runtimeDefaulted) {
+    report.runtimeDefaultsApplied += 1;
+  }
+  if (nodeBackfill.legacySessionIdPromoted) {
+    report.legacySessionIdsPromoted += 1;
+  }
+}
+
 export function toPersistedNode(node: WeftNode): PersistedNode {
+  const runtime = normalizeRuntimeMetadata(node.providerId, node.runtime);
+  const resumeCompat = resolveResumeCompatibility(
+    node.providerId,
+    runtime.resumeToken,
+    node.sessionId,
+  );
+
   return {
     id: node.id,
     type: node.type,
@@ -41,12 +136,27 @@ export function toPersistedNode(node: WeftNode): PersistedNode {
     costUsd: node.costUsd,
     tokenUsage: { input: node.tokenUsage.input, output: node.tokenUsage.output },
     isPhantomSubagent: node.isPhantomSubagent,
-    sessionId: node.sessionId,
+    sessionId: resumeCompat.sessionId,
+    providerId: node.providerId,
+    runtime: {
+      ...runtime,
+      resumeToken: resumeCompat.resumeToken,
+    },
   };
 }
 
-export function toWeftNode(persisted: PersistedNode): WeftNode {
-  return {
+export function toWeftNodeWithBackfill(
+  persisted: PersistedNode,
+): { node: WeftNode; backfill: NodeBackfillInfo } {
+  const providerId = normalizeProviderId(persisted.providerId);
+  const runtime = normalizeRuntimeMetadata(providerId, persisted.runtime);
+  const resumeCompat = resolveResumeCompatibility(
+    providerId,
+    runtime.resumeToken,
+    persisted.sessionId,
+  );
+
+  const node: WeftNode = {
     id: persisted.id,
     type: persisted.type,
     parentId: persisted.parentId,
@@ -54,15 +164,20 @@ export function toWeftNode(persisted: PersistedNode): WeftNode {
     repoPath: persisted.repoPath,
     branch: persisted.branch,
     prompt: persisted.prompt,
-    prUrl: persisted.prUrl,
-    prState: persisted.prState,
-    costUsd: persisted.costUsd,
-    tokenUsage: { input: persisted.tokenUsage.input, output: persisted.tokenUsage.output },
+    prUrl: persisted.prUrl ?? null,
+    prState: normalizePrState(persisted.prState),
+    costUsd: toFiniteNumber(persisted.costUsd),
+    tokenUsage: normalizeTokenUsage(persisted.tokenUsage),
     isPhantomSubagent: persisted.isPhantomSubagent,
+    providerId,
+    runtime: {
+      ...runtime,
+      resumeToken: resumeCompat.resumeToken,
+    },
     // Reset volatile fields to safe defaults
     nodeState: 'idle',
     displayStage: 'planning',
-    sessionId: persisted.sessionId ?? null,
+    sessionId: resumeCompat.sessionId,
     needsHuman: false,
     humanNeededType: null,
     humanNeededPayload: null,
@@ -72,6 +187,25 @@ export function toWeftNode(persisted: PersistedNode): WeftNode {
     x: 0,
     y: 0,
   };
+
+  const runtimeObject = persisted.runtime;
+  const runtimeDefaulted = !runtimeObject
+    || typeof runtimeObject !== 'object'
+    || typeof runtimeObject.runtimeId !== 'string'
+    || runtimeObject.runtimeId.trim().length === 0;
+
+  return {
+    node,
+    backfill: {
+      providerDefaulted: !isProviderId(persisted.providerId),
+      runtimeDefaulted,
+      legacySessionIdPromoted: resumeCompat.source === 'legacy-session-id',
+    },
+  };
+}
+
+export function toWeftNode(persisted: PersistedNode): WeftNode {
+  return toWeftNodeWithBackfill(persisted).node;
 }
 
 // ── Terminal persistence types ───────────────────────────────────────
@@ -187,11 +321,7 @@ async function saveTerminals(getBuffers: GetTerminalsFn): Promise<void> {
 
 // ── Load ────────────────────────────────────────────────────────────
 
-export async function loadWorkspace(): Promise<{
-  nodes: WeftNode[];
-  edges: WeftEdge[];
-  doneList: WeftNode[];
-} | null> {
+export async function loadWorkspace(): Promise<LoadedWorkspace | null> {
   try {
     const file = Bun.file(WORKSPACE_PATH);
     if (!(await file.exists())) return null;
@@ -206,11 +336,25 @@ export async function loadWorkspace(): Promise<{
     }
 
     const workspace = raw as WorkspaceFile;
+    const backfillReport = emptyBackfillReport();
+
+    const restoredNodes = workspace.nodes.map((node) => {
+      const restored = toWeftNodeWithBackfill(node);
+      mergeBackfillReports(backfillReport, restored.backfill);
+      return restored.node;
+    });
+
+    const restoredDoneList = workspace.doneList.map((node) => {
+      const restored = toWeftNodeWithBackfill(node);
+      mergeBackfillReports(backfillReport, restored.backfill);
+      return restored.node;
+    });
 
     return {
-      nodes: workspace.nodes.map(toWeftNode),
+      nodes: restoredNodes,
       edges: workspace.edges,
-      doneList: workspace.doneList.map(toWeftNode),
+      doneList: restoredDoneList,
+      backfill: backfillReport,
     };
   } catch (err) {
     console.error('[persistence] Failed to load workspace (starting fresh):', err);
