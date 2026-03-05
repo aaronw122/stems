@@ -73,6 +73,22 @@ bun run dev:client   # vite dev server
 
 in production, the bun server serves everything at `http://localhost:7482`. in dev, open `http://localhost:7483` (vite dev server, proxies to the bun backend on `7482`). 
 
+## provider rollout flags (startup only)
+
+provider migration gates are loaded once when the server boots:
+
+- `STEMS_PROVIDER_BRIDGE_ENABLED` (default `false`)
+- `STEMS_PROVIDER_CLAUDE_ADAPTER_ENABLED` (default `true`)
+- `STEMS_PROVIDER_CODEX_ENABLED` (default `false`)
+
+check the active startup snapshot with:
+
+```bash
+curl -s http://localhost:7482/api/health
+```
+
+full rollout/rollback drills and phase smoke checks live in [`docs/provider-rollout-rollback.md`](docs/provider-rollout-rollback.md).
+
 ## usage
 
 1. click **+ add repo** in the toolbar to add a repo node — picks a local git repository via native folder picker (multiple repos can run at once)

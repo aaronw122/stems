@@ -36,6 +36,7 @@ import { stopPolling as stopPRPolling, stopTracking as stopPRTracking } from './
 import { summarizeContext } from './context-summary.ts';
 import { loadWorkspace, loadTerminals } from './persistence.ts';
 import { getCustomSkills } from './skill-scanner.ts';
+import { bootstrapServerConfig, getProviderRolloutFlagSnapshot } from './config.ts';
 import { join, basename, resolve } from 'node:path';
 import { realpath } from 'node:fs/promises';
 
@@ -428,6 +429,8 @@ async function handleMessage(ws: ServerWebSocket<unknown>, raw: string): Promise
 
 // ── Restore persisted workspace ──────────────────────────────────────
 
+const serverConfig = bootstrapServerConfig();
+
 const savedWorkspace = await loadWorkspace();
 if (savedWorkspace) {
   hydrateState(savedWorkspace);
@@ -476,7 +479,11 @@ const server = Bun.serve({
 
     // Health check
     if (url.pathname === '/api/health') {
-      return new Response(JSON.stringify({ status: 'ok' }), {
+      return new Response(JSON.stringify({
+        status: 'ok',
+        configLoadedAt: serverConfig.loadedAt,
+        rolloutFlags: getProviderRolloutFlagSnapshot(serverConfig.providerRollout),
+      }), {
         headers: { 'Content-Type': 'application/json' },
       });
     }
