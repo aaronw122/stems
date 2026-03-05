@@ -1,0 +1,158 @@
+{
+  "fixtureVersion": "1.0",
+  "name": "human-needed-question-roundtrip",
+  "nodeId": "node-feature-456",
+  "sessionId": "sess_demo_002",
+  "description": "Question flow with canonical questionId correlation and stale-response rejection expectation.",
+  "events": [
+    {
+      "schemaVersion": "1.0",
+      "eventId": "node-feature-456:e1",
+      "sequence": 1,
+      "occurredAt": "2026-03-04T16:00:00.000Z",
+      "nodeId": "node-feature-456",
+      "provider": "claude",
+      "kind": "session.started",
+      "sessionId": "sess_demo_002"
+    },
+    {
+      "schemaVersion": "1.0",
+      "eventId": "node-feature-456:e2",
+      "sequence": 2,
+      "occurredAt": "2026-03-04T16:00:01.000Z",
+      "nodeId": "node-feature-456",
+      "provider": "claude",
+      "kind": "turn.started",
+      "sessionId": "sess_demo_002",
+      "turnId": "sess_demo_002:t1"
+    },
+    {
+      "schemaVersion": "1.0",
+      "eventId": "node-feature-456:e3",
+      "sequence": 3,
+      "occurredAt": "2026-03-04T16:00:02.000Z",
+      "nodeId": "node-feature-456",
+      "provider": "claude",
+      "kind": "message.user",
+      "sessionId": "sess_demo_002",
+      "turnId": "sess_demo_002:t1",
+      "messageId": "sess_demo_002:t1:m1",
+      "role": "user",
+      "text": "Review this branch and ask me to choose severity labels before finalizing."
+    },
+    {
+      "schemaVersion": "1.0",
+      "eventId": "node-feature-456:e4",
+      "sequence": 4,
+      "occurredAt": "2026-03-04T16:00:04.000Z",
+      "nodeId": "node-feature-456",
+      "provider": "claude",
+      "kind": "human.needed",
+      "sessionId": "sess_demo_002",
+      "turnId": "sess_demo_002:t1",
+      "messageId": "sess_demo_002:t1:m2",
+      "questionId": "sess_demo_002:t1:q1",
+      "text": "Choose how findings should be grouped.",
+      "payload": {
+        "questions": [
+          {
+            "header": "Grouping",
+            "question": "Choose one grouping mode",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "By severity",
+                "description": "Critical, high, medium, low"
+              },
+              {
+                "label": "By file",
+                "description": "Cluster findings per path"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": "1.0",
+      "eventId": "node-feature-456:e5",
+      "sequence": 5,
+      "occurredAt": "2026-03-04T16:00:10.000Z",
+      "nodeId": "node-feature-456",
+      "provider": "claude",
+      "kind": "human.response",
+      "sessionId": "sess_demo_002",
+      "turnId": "sess_demo_002:t1",
+      "questionId": "sess_demo_002:t1:q1",
+      "payload": {
+        "answer": "By severity"
+      }
+    },
+    {
+      "schemaVersion": "1.0",
+      "eventId": "node-feature-456:e6",
+      "sequence": 6,
+      "occurredAt": "2026-03-04T16:00:10.050Z",
+      "nodeId": "node-feature-456",
+      "provider": "claude",
+      "kind": "message.user",
+      "sessionId": "sess_demo_002",
+      "turnId": "sess_demo_002:t1",
+      "messageId": "sess_demo_002:t1:m3",
+      "role": "user",
+      "text": "By severity"
+    },
+    {
+      "schemaVersion": "1.0",
+      "eventId": "node-feature-456:e7",
+      "sequence": 7,
+      "occurredAt": "2026-03-04T16:00:12.000Z",
+      "nodeId": "node-feature-456",
+      "provider": "claude",
+      "kind": "message.assistant.final",
+      "sessionId": "sess_demo_002",
+      "turnId": "sess_demo_002:t1",
+      "messageId": "sess_demo_002:t1:m4",
+      "role": "assistant",
+      "text": "Findings are now grouped by severity."
+    },
+    {
+      "schemaVersion": "1.0",
+      "eventId": "node-feature-456:e8",
+      "sequence": 8,
+      "occurredAt": "2026-03-04T16:00:12.100Z",
+      "nodeId": "node-feature-456",
+      "provider": "claude",
+      "kind": "turn.completed",
+      "sessionId": "sess_demo_002",
+      "turnId": "sess_demo_002:t1"
+    }
+  ],
+  "expectedNodeStateTransitions": [
+    {
+      "afterEventId": "node-feature-456:e4",
+      "nodeState": "needs-human",
+      "needsHuman": true,
+      "humanNeededType": "question"
+    },
+    {
+      "afterEventId": "node-feature-456:e5",
+      "nodeState": "running",
+      "needsHuman": false
+    }
+  ],
+  "staleResponseExample": {
+    "input": {
+      "turnId": "sess_demo_002:t1",
+      "questionId": "sess_demo_002:t1:q0",
+      "answer": "By file"
+    },
+    "expectation": "Reject as stale/out-of-date and emit visible system.error (no silent drop)."
+  },
+  "idempotencyChecks": [
+    {
+      "duplicateEventId": "node-feature-456:e5",
+      "expectation": "second apply ignored; question remains closed once"
+    }
+  ]
+}
